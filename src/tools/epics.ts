@@ -8,6 +8,7 @@ export const definitions: Tool[] = [
   {
     name: 'epic_create',
     description: 'Create an epic within a project. Epics group related tasks into a feature or workstream.',
+    annotations: { title: 'Create Epic', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -33,6 +34,7 @@ export const definitions: Tool[] = [
     name: 'epic_list',
     description:
       'List epics for a project with task counts and completion stats. Optionally filter by status or priority.',
+    annotations: { title: 'List Epics', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -47,6 +49,7 @@ export const definitions: Tool[] = [
     name: 'epic_update',
     description:
       'Update an epic. Pass only the fields you want to change. Set status to "cancelled" to soft-delete.',
+    annotations: { title: 'Update Epic', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

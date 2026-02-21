@@ -1,0 +1,18 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      DB_PATH:
+        type: string
+        description: Absolute path to the .tracker.db SQLite file
+    required:
+      - DB_PATH
+  commandFunction: |-
+    (config) => ({
+      command: 'npx',
+      args: ['-y', 'saga-mcp'],
+      env: {
+        DB_PATH: config.DB_PATH
+      }
+    })

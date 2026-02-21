@@ -8,6 +8,7 @@ export const definitions: Tool[] = [
     name: 'subtask_create',
     description:
       'Create one or more subtasks (checklist items) for a task. Accepts a single title string or an array of title strings for batch creation.',
+    annotations: { title: 'Create Subtask(s)', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -25,6 +26,7 @@ export const definitions: Tool[] = [
   {
     name: 'subtask_update',
     description: 'Update a subtask title, status, or sort order.',
+    annotations: { title: 'Update Subtask', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -39,6 +41,7 @@ export const definitions: Tool[] = [
   {
     name: 'subtask_delete',
     description: 'Delete one or more subtasks. Accepts a single ID or array of IDs.',
+    annotations: { title: 'Delete Subtask(s)', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

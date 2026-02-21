@@ -8,6 +8,7 @@ export const definitions: Tool[] = [
     name: 'tracker_dashboard',
     description:
       'Get a comprehensive project overview in a single call. Returns: project info, all epics with task counts, overall stats (total/done/blocked/in_progress), recent activity, and recent notes. This is the best first tool to call when starting work on a project.',
+    annotations: { title: 'Project Dashboard', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -19,6 +20,7 @@ export const definitions: Tool[] = [
     name: 'tracker_init',
     description:
       'Initialize the tracker for a project. If the database is empty, creates a project with the given name. If a project already exists, returns its info.',
+    annotations: { title: 'Initialize Tracker', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

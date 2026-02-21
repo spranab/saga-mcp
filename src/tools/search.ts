@@ -7,6 +7,7 @@ export const definitions: Tool[] = [
     name: 'tracker_search',
     description:
       'Search across ALL entities (projects, epics, tasks, notes) by keyword. Returns categorized results.',
+    annotations: { title: 'Global Search', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

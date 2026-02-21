@@ -9,6 +9,7 @@ export const definitions: Tool[] = [
     name: 'note_save',
     description:
       'Create or update a note. Notes capture decisions, context, progress, meeting notes, blockers, technical details, or release info. If "id" is provided, updates the existing note; otherwise creates a new one.',
+    annotations: { title: 'Save Note', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -34,6 +35,7 @@ export const definitions: Tool[] = [
   {
     name: 'note_list',
     description: 'List notes with optional filters. Returns notes sorted by most recent first.',
+    annotations: { title: 'List Notes', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -51,6 +53,7 @@ export const definitions: Tool[] = [
   {
     name: 'note_search',
     description: 'Search across note titles and content by keyword.',
+    annotations: { title: 'Search Notes', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -67,6 +70,7 @@ export const definitions: Tool[] = [
   {
     name: 'note_delete',
     description: 'Delete a note by ID.',
+    annotations: { title: 'Delete Note', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

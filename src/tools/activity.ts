@@ -8,6 +8,7 @@ export const definitions: Tool[] = [
     name: 'activity_log',
     description:
       'View the activity log showing what changed and when. Useful for understanding recent progress or reviewing what happened since the last session.',
+    annotations: { title: 'Activity Log', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -31,6 +32,7 @@ export const definitions: Tool[] = [
     name: 'task_batch_update',
     description:
       'Update multiple tasks at once. Useful for changing status of several tasks (e.g., mark 3 tasks as done) or reassigning tasks.',
+    annotations: { title: 'Batch Update Tasks', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

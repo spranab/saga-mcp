@@ -8,6 +8,7 @@ export const definitions: Tool[] = [
   {
     name: 'project_create',
     description: 'Create a new project. Projects are the top-level container for all work.',
+    annotations: { title: 'Create Project', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -32,6 +33,7 @@ export const definitions: Tool[] = [
     name: 'project_list',
     description:
       'List all projects with epic/task counts and completion percentages. Optionally filter by status.',
+    annotations: { title: 'List Projects', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -47,6 +49,7 @@ export const definitions: Tool[] = [
     name: 'project_update',
     description:
       'Update a project. Pass only the fields you want to change. Set status to "archived" to soft-delete.',
+    annotations: { title: 'Update Project', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

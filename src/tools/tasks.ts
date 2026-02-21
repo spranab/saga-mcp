@@ -8,6 +8,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_create',
     description: 'Create a task within an epic. Tasks are the primary unit of work.',
+    annotations: { title: 'Create Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -36,6 +37,7 @@ export const definitions: Tool[] = [
     name: 'task_list',
     description:
       'List tasks with optional filters. If no epic_id given, lists across ALL epics. Includes subtask counts.',
+    annotations: { title: 'List Tasks', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -51,6 +53,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_get',
     description: 'Get a single task with full details including all subtasks and related notes.',
+    annotations: { title: 'Get Task', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -63,6 +66,7 @@ export const definitions: Tool[] = [
     name: 'task_update',
     description:
       'Update a task. Pass only fields to change. Status transitions are automatically logged in the activity log.',
+    annotations: { title: 'Update Task', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
