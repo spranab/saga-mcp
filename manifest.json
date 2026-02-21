@@ -1,0 +1,80 @@
+{
+  "manifest_version": "0.3",
+  "name": "saga-mcp",
+  "display_name": "Saga — Project Tracker for AI Agents",
+  "version": "1.1.0",
+  "description": "A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy and activity logging — so LLMs never lose track.",
+  "long_description": "Saga gives your AI assistant a structured SQLite database to track projects, epics, tasks, subtasks, notes, and decisions across sessions. No more scattered markdown files — one `tracker_dashboard` call gives full project context to resume work.\n\n**Key features:**\n- Full hierarchy: Projects > Epics > Tasks > Subtasks\n- SQLite: Self-contained `.tracker.db` file per project — zero setup\n- Activity log: Every mutation is automatically tracked\n- Dashboard: One tool call gives full project overview\n- Notes system: Decisions, context, meeting notes, blockers\n- Batch operations: Create multiple subtasks or update multiple tasks in one call\n- 22 focused tools with safety annotations",
+  "author": {
+    "name": "spranab",
+    "url": "https://github.com/spranab"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spranab/saga-mcp.git"
+  },
+  "homepage": "https://github.com/spranab/saga-mcp#readme",
+  "documentation": "https://github.com/spranab/saga-mcp#readme",
+  "support": "https://github.com/spranab/saga-mcp/issues",
+  "keywords": [
+    "mcp",
+    "project-tracker",
+    "task-manager",
+    "sqlite",
+    "jira-alternative",
+    "ai-agent",
+    "llm-tools",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
+  "privacy_policies": [],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "DB_PATH": "${user_config.db_path}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "tracker_init", "description": "Initialize tracker and create first project" },
+    { "name": "tracker_dashboard", "description": "Full project overview — call this first when resuming work" },
+    { "name": "project_create", "description": "Create a new project" },
+    { "name": "project_list", "description": "List projects with completion stats" },
+    { "name": "project_update", "description": "Update project (archive to soft-delete)" },
+    { "name": "epic_create", "description": "Create an epic within a project" },
+    { "name": "epic_list", "description": "List epics with task counts" },
+    { "name": "epic_update", "description": "Update an epic" },
+    { "name": "task_create", "description": "Create a task within an epic" },
+    { "name": "task_list", "description": "List/filter tasks by epic, status, priority, assignee, tag" },
+    { "name": "task_get", "description": "Get task with subtasks and related notes" },
+    { "name": "task_update", "description": "Update task (status changes auto-logged)" },
+    { "name": "task_batch_update", "description": "Update multiple tasks at once" },
+    { "name": "subtask_create", "description": "Create subtask(s) — supports batch" },
+    { "name": "subtask_update", "description": "Update subtask title/status" },
+    { "name": "subtask_delete", "description": "Delete subtask(s) — supports batch" },
+    { "name": "note_save", "description": "Create or update a note (upsert)" },
+    { "name": "note_list", "description": "List notes with filters" },
+    { "name": "note_search", "description": "Full-text search across notes" },
+    { "name": "note_delete", "description": "Delete a note" },
+    { "name": "tracker_search", "description": "Cross-entity search (projects, epics, tasks, notes)" },
+    { "name": "activity_log", "description": "View change history with filters" }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "db_path": {
+      "type": "file",
+      "title": "Database Path",
+      "description": "Path to the .tracker.db SQLite file. The file and schema are auto-created on first use.",
+      "required": true
+    }
+  }
+}

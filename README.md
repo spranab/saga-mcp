@@ -12,7 +12,8 @@ A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project
 - **Dashboard**: One tool call gives full project overview (stats, blocked tasks, recent changes)
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **22 focused tools**: Reduced from typical 38+ by combining related operations
+- **22 focused tools**: With MCP safety annotations on every tool
+- **Cross-platform**: Works on macOS, Windows, and Linux
 
 ## Quick Start
 
@@ -59,64 +60,147 @@ npm install -g saga-mcp
 DB_PATH=./my-project/.tracker.db saga-mcp
 ```
 
+## Configuration
+
+saga-mcp requires a single environment variable:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DB_PATH` | Yes | Absolute path to the `.tracker.db` SQLite file. The file and schema are auto-created on first use. |
+
+No API keys, no accounts, no external services. Everything is stored locally in the SQLite file you specify.
+
 ## Tools
 
 ### Getting Started
 
-| Tool | Description |
-|------|-------------|
-| `tracker_init` | Initialize tracker and create first project |
-| `tracker_dashboard` | Full project overview — **call this first when resuming work** |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `tracker_init` | Initialize tracker and create first project | `readOnly: false`, `idempotent: true` |
+| `tracker_dashboard` | Full project overview — **call this first when resuming work** | `readOnly: true` |
 
 ### Projects
 
-| Tool | Description |
-|------|-------------|
-| `project_create` | Create a new project |
-| `project_list` | List projects with completion stats |
-| `project_update` | Update project (archive to soft-delete) |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `project_create` | Create a new project | `readOnly: false` |
+| `project_list` | List projects with completion stats | `readOnly: true` |
+| `project_update` | Update project (archive to soft-delete) | `readOnly: false`, `idempotent: true` |
 
 ### Epics
 
-| Tool | Description |
-|------|-------------|
-| `epic_create` | Create an epic within a project |
-| `epic_list` | List epics with task counts |
-| `epic_update` | Update an epic |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `epic_create` | Create an epic within a project | `readOnly: false` |
+| `epic_list` | List epics with task counts | `readOnly: true` |
+| `epic_update` | Update an epic | `readOnly: false`, `idempotent: true` |
 
 ### Tasks
 
-| Tool | Description |
-|------|-------------|
-| `task_create` | Create a task within an epic |
-| `task_list` | List/filter tasks (by epic, status, priority, assignee, tag) |
-| `task_get` | Get task with subtasks and related notes |
-| `task_update` | Update task (status changes auto-logged) |
-| `task_batch_update` | Update multiple tasks at once |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `task_create` | Create a task within an epic | `readOnly: false` |
+| `task_list` | List/filter tasks (by epic, status, priority, assignee, tag) | `readOnly: true` |
+| `task_get` | Get task with subtasks and related notes | `readOnly: true` |
+| `task_update` | Update task (status changes auto-logged) | `readOnly: false`, `idempotent: true` |
+| `task_batch_update` | Update multiple tasks at once | `readOnly: false`, `idempotent: true` |
 
 ### Subtasks
 
-| Tool | Description |
-|------|-------------|
-| `subtask_create` | Create subtask(s) — supports batch |
-| `subtask_update` | Update subtask title/status |
-| `subtask_delete` | Delete subtask(s) — supports batch |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `subtask_create` | Create subtask(s) — supports batch | `readOnly: false` |
+| `subtask_update` | Update subtask title/status | `readOnly: false`, `idempotent: true` |
+| `subtask_delete` | Delete subtask(s) — supports batch | `destructive: true`, `idempotent: true` |
 
 ### Notes
 
-| Tool | Description |
-|------|-------------|
-| `note_save` | Create or update a note (upsert) |
-| `note_list` | List notes with filters |
-| `note_search` | Full-text search across notes |
-| `note_delete` | Delete a note |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `note_save` | Create or update a note (upsert) | `readOnly: false` |
+| `note_list` | List notes with filters | `readOnly: true` |
+| `note_search` | Full-text search across notes | `readOnly: true` |
+| `note_delete` | Delete a note | `destructive: true`, `idempotent: true` |
 
 ### Intelligence
 
-| Tool | Description |
-|------|-------------|
-| `tracker_search` | Cross-entity search (projects, epics, tasks, notes) |
-| `activity_log` | View change history with filters |
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `tracker_search` | Cross-entity search (projects, epics, tasks, notes) | `readOnly: true` |
+| `activity_log` | View change history with filters | `readOnly: true` |
+
+## Usage Examples
+
+### Example 1: Starting a new project
+
+**User prompt:** "Set up tracking for my new e-commerce API project"
+
+**Tool calls:**
+```
+tracker_init({ project_name: "E-Commerce API", project_description: "REST API for online store" })
+epic_create({ project_id: 1, name: "Authentication", priority: "high" })
+epic_create({ project_id: 1, name: "Product Catalog", priority: "medium" })
+task_create({ epic_id: 1, title: "Implement JWT auth", priority: "high" })
+task_create({ epic_id: 1, title: "Add OAuth2 Google login", priority: "medium" })
+subtask_create({ task_id: 1, titles: ["Set up JWT library", "Create login endpoint", "Create refresh endpoint", "Add middleware"] })
+```
+
+**Expected output:** Project created with ID 1, two epics, two tasks, and four subtasks. Activity log records all creations.
+
+### Example 2: Resuming work on an existing project
+
+**User prompt:** "What's the current status of my project? What should I work on next?"
+
+**Tool calls:**
+```
+tracker_dashboard({})
+```
+
+**Expected output:**
+```json
+{
+  "project": { "id": 1, "name": "E-Commerce API", "status": "active" },
+  "stats": {
+    "total_epics": 2,
+    "total_tasks": 5,
+    "tasks_done": 2,
+    "tasks_in_progress": 1,
+    "tasks_blocked": 1,
+    "tasks_todo": 1,
+    "completion_pct": 40.0
+  },
+  "epics": [
+    { "name": "Authentication", "task_count": 3, "done_count": 2, "completion_pct": 66.7 },
+    { "name": "Product Catalog", "task_count": 2, "done_count": 0, "completion_pct": 0 }
+  ],
+  "blocked_tasks": [
+    { "id": 4, "title": "Add rate limiting", "epic_name": "Authentication" }
+  ],
+  "recent_activity": [...],
+  "recent_notes": [...]
+}
+```
+
+The dashboard immediately shows: 40% done, 1 blocked task in Auth, Product Catalog hasn't started. The LLM can now prioritize unblocking the rate limiting task or starting on the catalog.
+
+### Example 3: Recording a decision and marking tasks done
+
+**User prompt:** "We decided to use Redis for caching. Mark the caching research tasks as done."
+
+**Tool calls:**
+```
+note_save({
+  title: "Decision: Use Redis for caching",
+  content: "After evaluating Redis vs Memcached vs in-memory, decided on Redis.\n\nReasons:\n- Built-in persistence\n- Pub/sub for cache invalidation\n- Better data structure support\n\nTrade-offs: Extra infrastructure, but managed Redis on AWS is acceptable.",
+  note_type: "decision",
+  related_entity_type: "epic",
+  related_entity_id: 3,
+  tags: ["caching", "infrastructure"]
+})
+task_batch_update({ ids: [8, 9], status: "done" })
+```
+
+**Expected output:** Decision note created with ID, linked to the epic. Tasks 8 and 9 marked as done. Activity log records both the note creation and the status changes with "status: todo -> done" entries.
 
 ## How It Works
 
@@ -163,11 +247,18 @@ Every create, update, and delete is automatically recorded:
 }
 ```
 
-## Environment Variables
+## Privacy Policy
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DB_PATH` | Yes | Absolute path to the `.tracker.db` file |
+saga-mcp is a fully local, offline tool. It does **not**:
+
+- Collect any user data
+- Send any data to external servers
+- Require internet access after installation
+- Use analytics, telemetry, or tracking of any kind
+
+All data is stored exclusively in the local SQLite file specified by `DB_PATH`. You own your data completely. Uninstalling saga-mcp and deleting the `.tracker.db` file removes all traces.
+
+For questions about privacy, open an issue at https://github.com/spranab/saga-mcp/issues.
 
 ## Development
 
@@ -178,6 +269,11 @@ npm install
 npm run build
 DB_PATH=./test.db npm start
 ```
+
+## Support
+
+- **Issues**: https://github.com/spranab/saga-mcp/issues
+- **Repository**: https://github.com/spranab/saga-mcp
 
 ## License
 
