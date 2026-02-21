@@ -25,7 +25,7 @@ Add to your project's `.mcp.json`:
   "mcpServers": {
     "saga": {
       "command": "npx",
-      "args": ["-y", "@spranab/saga-mcp"],
+      "args": ["-y", "saga-mcp"],
       "env": {
         "DB_PATH": "/absolute/path/to/your/project/.tracker.db"
       }
@@ -43,7 +43,7 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
   "mcpServers": {
     "saga": {
       "command": "npx",
-      "args": ["-y", "@spranab/saga-mcp"],
+      "args": ["-y", "saga-mcp"],
       "env": {
         "DB_PATH": "/absolute/path/to/your/project/.tracker.db"
       }
@@ -55,7 +55,7 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 ### Manual install
 
 ```bash
-npm install -g @spranab/saga-mcp
+npm install -g saga-mcp
 DB_PATH=./my-project/.tracker.db saga-mcp
 ```
 
