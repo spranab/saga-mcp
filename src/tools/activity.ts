@@ -29,6 +29,22 @@ export const definitions: Tool[] = [
     },
   },
   {
+    name: 'tracker_session_diff',
+    description:
+      'Show what changed since a given timestamp. Returns aggregated summary with counts by action and entity type, plus highlights of key changes. Call this at the start of a session to understand what happened since the last one.',
+    annotations: { title: 'Session Diff', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: {
+          type: 'string',
+          description: 'ISO 8601 datetime — show changes after this time (e.g. "2026-02-21T15:00:00")',
+        },
+      },
+      required: ['since'],
+    },
+  },
+  {
     name: 'task_batch_update',
     description:
       'Update multiple tasks at once. Useful for changing status of several tasks (e.g., mark 3 tasks as done) or reassigning tasks.',
@@ -83,6 +99,51 @@ function handleActivityLog(args: Record<string, unknown>) {
   params.push(limit);
 
   return db.prepare(sql).all(...params);
+}
+
+function handleSessionDiff(args: Record<string, unknown>) {
+  const db = getDb();
+  const since = args.since as string;
+
+  const rows = db
+    .prepare('SELECT * FROM activity_log WHERE created_at >= ? ORDER BY created_at ASC')
+    .all(since) as Array<Record<string, unknown>>;
+
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  // Aggregate by action
+  const summary: Record<string, number> = { created: 0, updated: 0, status_changed: 0, deleted: 0 };
+  // Aggregate by entity_type -> action
+  const byEntity: Record<string, Record<string, number>> = {};
+
+  const highlights: string[] = [];
+
+  for (const row of rows) {
+    const action = row.action as string;
+    const entityType = row.entity_type as string;
+
+    summary[action] = (summary[action] ?? 0) + 1;
+
+    if (!byEntity[entityType]) {
+      byEntity[entityType] = { created: 0, updated: 0, status_changed: 0, deleted: 0 };
+    }
+    byEntity[entityType][action] = (byEntity[entityType][action] ?? 0) + 1;
+
+    // Pick out highlights: status changes, creates, and deletes
+    if (action === 'status_changed' || action === 'created' || action === 'deleted') {
+      if (row.summary) highlights.push(row.summary as string);
+    }
+  }
+
+  return {
+    since,
+    until: now,
+    total_changes: rows.length,
+    summary,
+    by_entity_type: byEntity,
+    highlights,
+    activity: rows,
+  };
 }
 
 function handleTaskBatchUpdate(args: Record<string, unknown>) {
@@ -151,5 +212,6 @@ function handleTaskBatchUpdate(args: Record<string, unknown>) {
 
 export const handlers: Record<string, ToolHandler> = {
   activity_log: handleActivityLog,
+  tracker_session_diff: handleSessionDiff,
   task_batch_update: handleTaskBatchUpdate,
 };

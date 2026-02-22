@@ -1,6 +1,6 @@
 {
   "name": "saga-mcp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy (Projects > Epics > Tasks > Subtasks), activity logging, and a dashboard — so LLMs never lose track.",
   "type": "module",
   "main": "dist/index.js",
