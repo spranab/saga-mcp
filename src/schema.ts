@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   estimated_hours REAL,
   actual_hours    REAL,
   due_date        TEXT,
+  source_ref      TEXT,
   tags            TEXT NOT NULL DEFAULT '[]',
   metadata        TEXT NOT NULL DEFAULT '{}',
   created_at      TEXT NOT NULL DEFAULT (datetime('now')),

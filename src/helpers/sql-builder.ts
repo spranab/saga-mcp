@@ -1,4 +1,4 @@
-const JSON_COLUMNS = new Set(['tags', 'metadata']);
+const JSON_COLUMNS = new Set(['tags', 'metadata', 'source_ref']);
 
 export function buildUpdate(
   table: string,

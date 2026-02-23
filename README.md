@@ -12,7 +12,9 @@ A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project
 - **Dashboard**: One tool call gives full project overview (stats, blocked tasks, recent changes)
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **23 focused tools**: With MCP safety annotations on every tool
+- **25 focused tools**: With MCP safety annotations on every tool
+- **Import/export**: Full project backup and migration as JSON
+- **Source references**: Link tasks to specific code locations
 - **Cross-platform**: Works on macOS, Windows, and Linux
 
 ## Quick Start
@@ -129,6 +131,13 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 | `tracker_search` | Cross-entity search (projects, epics, tasks, notes) | `readOnly: true` |
 | `activity_log` | View change history with filters | `readOnly: true` |
 | `tracker_session_diff` | Show what changed since a given timestamp — call at session start | `readOnly: true` |
+
+### Import / Export
+
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `tracker_export` | Export full project as nested JSON for backup or migration | `readOnly: true` |
+| `tracker_import` | Import project from JSON (matching export format) | `readOnly: false` |
 
 ## Usage Examples
 

@@ -15,6 +15,7 @@ import { definitions as noteDefs, handlers as noteHandlers } from './tools/notes
 import { definitions as dashboardDefs, handlers as dashboardHandlers } from './tools/dashboard.js';
 import { definitions as searchDefs, handlers as searchHandlers } from './tools/search.js';
 import { definitions as activityDefs, handlers as activityHandlers } from './tools/activity.js';
+import { definitions as exportImportDefs, handlers as exportImportHandlers } from './tools/export-import.js';
 import { closeDb } from './db.js';
 
 const ALL_TOOLS: Tool[] = [
@@ -26,6 +27,7 @@ const ALL_TOOLS: Tool[] = [
   ...dashboardDefs,
   ...searchDefs,
   ...activityDefs,
+  ...exportImportDefs,
 ];
 
 const ALL_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> = {
@@ -37,6 +39,7 @@ const ALL_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> =
   ...dashboardHandlers,
   ...searchHandlers,
   ...activityHandlers,
+  ...exportImportHandlers,
 };
 
 const server = new Server(

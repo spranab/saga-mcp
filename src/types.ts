@@ -35,6 +35,7 @@ export interface Task {
   estimated_hours: number | null;
   actual_hours: number | null;
   due_date: string | null;
+  source_ref: string | null;
   tags: string;
   metadata: string;
   created_at: string;

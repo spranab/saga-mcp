@@ -28,6 +28,18 @@ export const definitions: Tool[] = [
         assigned_to: { type: 'string', description: 'Assignee name' },
         estimated_hours: { type: 'number', description: 'Estimated hours' },
         due_date: { type: 'string', description: 'Due date (YYYY-MM-DD)' },
+        source_ref: {
+          type: 'object',
+          description: 'Link to source code location',
+          properties: {
+            file: { type: 'string', description: 'File path' },
+            line_start: { type: 'integer', description: 'Start line number' },
+            line_end: { type: 'integer', description: 'End line number' },
+            repo: { type: 'string', description: 'Repository URL or name' },
+            commit: { type: 'string', description: 'Commit hash' },
+          },
+          required: ['file'],
+        },
         tags: { type: 'array', items: { type: 'string' } },
       },
       required: ['epic_id', 'title'],
@@ -79,6 +91,18 @@ export const definitions: Tool[] = [
         estimated_hours: { type: 'number' },
         actual_hours: { type: 'number' },
         due_date: { type: 'string' },
+        source_ref: {
+          type: 'object',
+          description: 'Link to source code location',
+          properties: {
+            file: { type: 'string', description: 'File path' },
+            line_start: { type: 'integer', description: 'Start line number' },
+            line_end: { type: 'integer', description: 'End line number' },
+            repo: { type: 'string', description: 'Repository URL or name' },
+            commit: { type: 'string', description: 'Commit hash' },
+          },
+          required: ['file'],
+        },
         sort_order: { type: 'integer' },
         tags: { type: 'array', items: { type: 'string' } },
       },
@@ -97,14 +121,15 @@ function handleTaskCreate(args: Record<string, unknown>) {
   const assignedTo = (args.assigned_to as string) ?? null;
   const estimatedHours = (args.estimated_hours as number) ?? null;
   const dueDate = (args.due_date as string) ?? null;
+  const sourceRef = args.source_ref ? JSON.stringify(args.source_ref) : null;
   const tags = JSON.stringify((args.tags as string[]) ?? []);
 
   const task = db
     .prepare(
-      `INSERT INTO tasks (epic_id, title, description, status, priority, assigned_to, estimated_hours, due_date, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+      `INSERT INTO tasks (epic_id, title, description, status, priority, assigned_to, estimated_hours, due_date, source_ref, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
     )
-    .get(epicId, title, description, status, priority, assignedTo, estimatedHours, dueDate, tags);
+    .get(epicId, title, description, status, priority, assignedTo, estimatedHours, dueDate, sourceRef, tags);
 
   const row = task as Record<string, unknown>;
   logActivity(db, 'task', row.id as number, 'created', null, null, null, `Task '${title}' created`);
@@ -203,7 +228,7 @@ function handleTaskUpdate(args: Record<string, unknown>) {
 
   const update = buildUpdate('tasks', id, args, [
     'title', 'description', 'status', 'priority', 'assigned_to',
-    'estimated_hours', 'actual_hours', 'due_date', 'sort_order', 'tags',
+    'estimated_hours', 'actual_hours', 'due_date', 'source_ref', 'sort_order', 'tags',
   ]);
   if (!update) throw new Error('No fields to update');
 

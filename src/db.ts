@@ -22,6 +22,9 @@ export function getDb(): Database.Database {
 
   db.exec(SCHEMA_SQL);
 
+  // Migrations for existing databases
+  try { db.exec('ALTER TABLE tasks ADD COLUMN source_ref TEXT'); } catch { /* column already exists */ }
+
   return db;
 }
 
