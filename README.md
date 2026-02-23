@@ -7,14 +7,18 @@ A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project
 ## Features
 
 - **Full hierarchy**: Projects > Epics > Tasks > Subtasks
+- **Task dependencies**: Express sequencing with auto-block/unblock when deps are met
+- **Comments**: Threaded discussions on tasks — leave breadcrumbs across sessions
+- **Templates**: Reusable task sets with `{variable}` substitution
+- **Dashboard**: One tool call gives full overview with natural language summary
 - **SQLite**: Self-contained `.tracker.db` file per project — zero setup, no external database
 - **Activity log**: Every mutation is automatically tracked with old/new values
-- **Dashboard**: One tool call gives full project overview (stats, blocked tasks, recent changes)
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **25 focused tools**: With MCP safety annotations on every tool
-- **Import/export**: Full project backup and migration as JSON
+- **31 focused tools**: With MCP safety annotations on every tool
+- **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
+- **Auto time tracking**: Hours computed automatically from activity log
 - **Cross-platform**: Works on macOS, Windows, and Linux
 
 ## Quick Start
@@ -79,7 +83,7 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 | Tool | Description | Annotations |
 |------|-------------|-------------|
 | `tracker_init` | Initialize tracker and create first project | `readOnly: false`, `idempotent: true` |
-| `tracker_dashboard` | Full project overview — **call this first when resuming work** | `readOnly: true` |
+| `tracker_dashboard` | Full project overview with natural language summary | `readOnly: true` |
 
 ### Projects
 
@@ -101,10 +105,10 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 
 | Tool | Description | Annotations |
 |------|-------------|-------------|
-| `task_create` | Create a task within an epic | `readOnly: false` |
-| `task_list` | List/filter tasks (by epic, status, priority, assignee, tag) | `readOnly: true` |
-| `task_get` | Get task with subtasks and related notes | `readOnly: true` |
-| `task_update` | Update task (status changes auto-logged) | `readOnly: false`, `idempotent: true` |
+| `task_create` | Create a task with optional dependencies | `readOnly: false` |
+| `task_list` | List/filter tasks with dependency info | `readOnly: true` |
+| `task_get` | Get task with subtasks, notes, comments, and dependencies | `readOnly: true` |
+| `task_update` | Update task (auto-logs, auto-blocks/unblocks) | `readOnly: false`, `idempotent: true` |
 | `task_batch_update` | Update multiple tasks at once | `readOnly: false`, `idempotent: true` |
 
 ### Subtasks
@@ -114,6 +118,22 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 | `subtask_create` | Create subtask(s) — supports batch | `readOnly: false` |
 | `subtask_update` | Update subtask title/status | `readOnly: false`, `idempotent: true` |
 | `subtask_delete` | Delete subtask(s) — supports batch | `destructive: true`, `idempotent: true` |
+
+### Comments
+
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `comment_add` | Add a comment to a task (threaded discussion) | `readOnly: false` |
+| `comment_list` | List all comments on a task | `readOnly: true` |
+
+### Templates
+
+| Tool | Description | Annotations |
+|------|-------------|-------------|
+| `template_create` | Create a reusable task template with `{variable}` placeholders | `readOnly: false` |
+| `template_list` | List available templates | `readOnly: true` |
+| `template_apply` | Apply template to create tasks with variable substitution | `readOnly: false` |
+| `template_delete` | Delete a template | `destructive: true`, `idempotent: true` |
 
 ### Notes
 
@@ -136,12 +156,12 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 
 | Tool | Description | Annotations |
 |------|-------------|-------------|
-| `tracker_export` | Export full project as nested JSON for backup or migration | `readOnly: true` |
+| `tracker_export` | Export full project as nested JSON (includes dependencies and comments) | `readOnly: true` |
 | `tracker_import` | Import project from JSON (matching export format) | `readOnly: false` |
 
 ## Usage Examples
 
-### Example 1: Starting a new project
+### Example 1: Starting a project with dependencies
 
 **User prompt:** "Set up tracking for my new e-commerce API project"
 
@@ -149,68 +169,59 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 ```
 tracker_init({ project_name: "E-Commerce API", project_description: "REST API for online store" })
 epic_create({ project_id: 1, name: "Authentication", priority: "high" })
-epic_create({ project_id: 1, name: "Product Catalog", priority: "medium" })
-task_create({ epic_id: 1, title: "Implement JWT auth", priority: "high" })
-task_create({ epic_id: 1, title: "Add OAuth2 Google login", priority: "medium" })
-subtask_create({ task_id: 1, titles: ["Set up JWT library", "Create login endpoint", "Create refresh endpoint", "Add middleware"] })
+task_create({ epic_id: 1, title: "Design auth schema", priority: "critical" })
+task_create({ epic_id: 1, title: "Implement JWT auth", priority: "high", depends_on: [1] })
+task_create({ epic_id: 1, title: "Add OAuth2 Google login", priority: "medium", depends_on: [2] })
 ```
 
-**Expected output:** Project created with ID 1, two epics, two tasks, and four subtasks. Activity log records all creations.
+**Result:** Task 2 and 3 are auto-blocked because their dependencies aren't done yet. When task 1 is marked done, task 2 auto-unblocks.
 
-### Example 2: Resuming work on an existing project
-
-**User prompt:** "What's the current status of my project? What should I work on next?"
+### Example 2: Resuming work with dashboard summary
 
 **Tool calls:**
 ```
 tracker_dashboard({})
 ```
 
-**Expected output:**
-```json
-{
-  "project": { "id": 1, "name": "E-Commerce API", "status": "active" },
-  "stats": {
-    "total_epics": 2,
-    "total_tasks": 5,
-    "tasks_done": 2,
-    "tasks_in_progress": 1,
-    "tasks_blocked": 1,
-    "tasks_todo": 1,
-    "completion_pct": 40.0
-  },
-  "epics": [
-    { "name": "Authentication", "task_count": 3, "done_count": 2, "completion_pct": 66.7 },
-    { "name": "Product Catalog", "task_count": 2, "done_count": 0, "completion_pct": 0 }
-  ],
-  "blocked_tasks": [
-    { "id": 4, "title": "Add rate limiting", "epic_name": "Authentication" }
-  ],
-  "recent_activity": [...],
-  "recent_notes": [...]
-}
+**Response includes a natural language summary:**
+```
+"E-Commerce API: 5 tasks across 2 epics. 40% complete. Active: Authentication (2/3 done). Next up: Product Catalog (2 tasks). 1 blocked task(s)."
 ```
 
-The dashboard immediately shows: 40% done, 1 blocked task in Auth, Product Catalog hasn't started. The LLM can now prioritize unblocking the rate limiting task or starting on the catalog.
+Plus the full structured data (stats, epics, blocked tasks, overdue tasks, activity, notes).
 
-### Example 3: Recording a decision and marking tasks done
+### Example 3: Using templates for repeated workflows
 
-**User prompt:** "We decided to use Redis for caching. Mark the caching research tasks as done."
-
-**Tool calls:**
+**Create a template:**
 ```
-note_save({
-  title: "Decision: Use Redis for caching",
-  content: "After evaluating Redis vs Memcached vs in-memory, decided on Redis.\n\nReasons:\n- Built-in persistence\n- Pub/sub for cache invalidation\n- Better data structure support\n\nTrade-offs: Extra infrastructure, but managed Redis on AWS is acceptable.",
-  note_type: "decision",
-  related_entity_type: "epic",
-  related_entity_id: 3,
-  tags: ["caching", "infrastructure"]
+template_create({
+  name: "feature_workflow",
+  description: "Standard feature implementation",
+  tasks: [
+    { "title": "Design {feature} API", "priority": "critical", "estimated_hours": 2 },
+    { "title": "Implement {feature}", "priority": "high", "estimated_hours": 8 },
+    { "title": "Write tests for {feature}", "priority": "high", "estimated_hours": 4 },
+    { "title": "Document {feature}", "priority": "medium", "estimated_hours": 1 }
+  ]
 })
-task_batch_update({ ids: [8, 9], status: "done" })
 ```
 
-**Expected output:** Decision note created with ID, linked to the epic. Tasks 8 and 9 marked as done. Activity log records both the note creation and the status changes with "status: todo -> done" entries.
+**Apply it:**
+```
+template_apply({ template_id: 1, epic_id: 2, variables: { "feature": "user auth" } })
+```
+
+Creates 4 tasks: "Design user auth API", "Implement user auth", "Write tests for user auth", "Document user auth".
+
+### Example 4: Task comments as decision trail
+
+```
+comment_add({ task_id: 5, content: "Investigated root cause: CORS headers missing on preflight" })
+comment_add({ task_id: 5, content: "Fixed by adding OPTIONS handler. Tested with curl." })
+task_update({ id: 5, status: "done" })
+```
+
+Comments persist across sessions — next time an agent calls `task_get(5)`, it sees the full discussion thread.
 
 ## How It Works
 
@@ -222,8 +233,17 @@ saga-mcp stores everything in a single SQLite file (`.tracker.db`) per project. 
 Project
   └── Epic (feature/workstream)
         └── Task (unit of work)
-              └── Subtask (checklist item)
+              ├── Subtask (checklist item)
+              ├── Comment (discussion thread)
+              └── Dependencies (blocked by other tasks)
 ```
+
+### Task Dependencies
+
+Tasks can depend on other tasks. When you set `depends_on: [2, 3]` on a task:
+- The task is auto-blocked if any dependency isn't `done`
+- When a dependency is marked `done`, downstream tasks are re-evaluated
+- If all dependencies are met, the blocked task auto-unblocks to `todo`
 
 ### Note Types
 

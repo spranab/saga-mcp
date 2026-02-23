@@ -61,6 +61,36 @@ CREATE TABLE IF NOT EXISTS subtasks (
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Task dependencies (junction table)
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  task_id            INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (task_id, depends_on_task_id)
+);
+
+-- Comments (threaded discussions on tasks)
+
+CREATE TABLE IF NOT EXISTS comments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author     TEXT,
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Task templates
+
+CREATE TABLE IF NOT EXISTS templates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  name          TEXT NOT NULL UNIQUE,
+  description   TEXT,
+  template_data TEXT NOT NULL DEFAULT '[]',
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Unified notes (replaces summaries + status_updates + context)
 
 CREATE TABLE IF NOT EXISTS notes (
@@ -122,4 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_log(action);
 
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
+
+CREATE INDEX IF NOT EXISTS idx_task_deps_depends ON task_dependencies(depends_on_task_id);
+CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 `;

@@ -7,7 +7,7 @@ export const definitions: Tool[] = [
   {
     name: 'tracker_export',
     description:
-      'Export a full project as nested JSON. Includes all epics, tasks, subtasks, and related notes. Useful for backup, migration, or sharing.',
+      'Export a full project as nested JSON. Includes all epics, tasks, subtasks, comments, dependencies, and related notes. Useful for backup, migration, or sharing.',
     annotations: { title: 'Export Project', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -58,8 +58,16 @@ function handleExport(args: Record<string, unknown>) {
       .all(epic.id as number) as Array<Record<string, unknown>>;
 
     const taskData = tasks.map((task) => {
+      const taskId = task.id as number;
+
       const subtasks = db.prepare('SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at')
-        .all(task.id as number) as Array<Record<string, unknown>>;
+        .all(taskId) as Array<Record<string, unknown>>;
+
+      const comments = db.prepare('SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC')
+        .all(taskId) as Array<Record<string, unknown>>;
+
+      const deps = db.prepare('SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?')
+        .all(taskId) as Array<{ depends_on_task_id: number }>;
 
       return {
         _original_id: task.id,
@@ -75,10 +83,16 @@ function handleExport(args: Record<string, unknown>) {
         source_ref: task.source_ref,
         tags: task.tags,
         metadata: task.metadata,
+        depends_on: deps.map((d) => d.depends_on_task_id),
         subtasks: subtasks.map((s) => ({
           title: s.title,
           status: s.status,
           sort_order: s.sort_order,
+        })),
+        comments: comments.map((c) => ({
+          author: c.author,
+          content: c.content,
+          created_at: c.created_at,
         })),
       };
     });
@@ -140,7 +154,7 @@ function handleExport(args: Record<string, unknown>) {
   }));
 
   return {
-    format_version: '1.0',
+    format_version: '1.1',
     exported_at: new Date().toISOString(),
     project: {
       name: project.name,
@@ -158,8 +172,9 @@ function handleImport(args: Record<string, unknown>) {
   const db = getDb();
   const data = args.data as Record<string, unknown>;
 
-  if (data.format_version !== '1.0') {
-    throw new Error(`Unsupported format version: ${data.format_version}. Expected "1.0".`);
+  const version = data.format_version as string;
+  if (version !== '1.0' && version !== '1.1') {
+    throw new Error(`Unsupported format version: ${version}. Expected "1.0" or "1.1".`);
   }
 
   const projectData = data.project as Record<string, unknown>;
@@ -190,6 +205,11 @@ function handleImport(args: Record<string, unknown>) {
     let epicCount = 0;
     let taskCount = 0;
     let subtaskCount = 0;
+    let commentCount = 0;
+    let depCount = 0;
+
+    // Collect deferred dependencies (need all tasks created first)
+    const deferredDeps: Array<{ newTaskId: number; originalDeps: number[] }> = [];
 
     for (const epicData of epics) {
       const epic = db.prepare(
@@ -243,6 +263,12 @@ function handleImport(args: Record<string, unknown>) {
         taskCount++;
         logActivity(db, 'task', newTaskId, 'created', null, null, null, `Task '${taskData.title}' imported`);
 
+        // Defer dependency creation
+        const originalDeps = (taskData.depends_on as number[]) ?? [];
+        if (originalDeps.length > 0) {
+          deferredDeps.push({ newTaskId, originalDeps });
+        }
+
         // 4. Create subtasks
         const subtasks = (taskData.subtasks as Array<Record<string, unknown>>) ?? [];
         for (const subtaskData of subtasks) {
@@ -258,10 +284,31 @@ function handleImport(args: Record<string, unknown>) {
           subtaskCount++;
           logActivity(db, 'subtask', subtask.id as number, 'created', null, null, null, `Subtask '${subtaskData.title}' imported`);
         }
+
+        // 5. Create comments
+        const comments = (taskData.comments as Array<Record<string, unknown>>) ?? [];
+        for (const commentData of comments) {
+          db.prepare(
+            'INSERT INTO comments (task_id, author, content) VALUES (?, ?, ?)'
+          ).run(newTaskId, commentData.author ?? null, commentData.content);
+          commentCount++;
+        }
       }
     }
 
-    // 5. Create notes with ID remapping
+    // 6. Create dependencies with ID remapping
+    const depInsert = db.prepare('INSERT INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)');
+    for (const { newTaskId, originalDeps } of deferredDeps) {
+      for (const origDepId of originalDeps) {
+        const newDepId = taskIdMap.get(origDepId);
+        if (newDepId != null) {
+          depInsert.run(newTaskId, newDepId);
+          depCount++;
+        }
+      }
+    }
+
+    // 7. Create notes with ID remapping
     const importNotes = (data.notes as Array<Record<string, unknown>>) ?? [];
     let noteCount = 0;
 
@@ -303,7 +350,7 @@ function handleImport(args: Record<string, unknown>) {
       message: 'Import complete.',
       project_id: newProjectId,
       project_name: projectData.name,
-      counts: { epics: epicCount, tasks: taskCount, subtasks: subtaskCount, notes: noteCount },
+      counts: { epics: epicCount, tasks: taskCount, subtasks: subtaskCount, comments: commentCount, dependencies: depCount, notes: noteCount },
     };
   })();
 

@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { logActivity } from '../helpers/activity-logger.js';
+import { reevaluateDownstream } from './tasks.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -223,6 +224,11 @@ function handleTaskBatchUpdate(args: Record<string, unknown>) {
               `Task '${newRow.title}' auto-tracked: ${hours}h`);
           }
         }
+      }
+
+      // Re-evaluate downstream dependencies when task marked done
+      if (status === 'done' && oldRow.status !== 'done') {
+        reevaluateDownstream(db, id);
       }
 
       return newRow;

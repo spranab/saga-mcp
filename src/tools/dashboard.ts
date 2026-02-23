@@ -113,6 +113,18 @@ function handleDashboard(args: Record<string, unknown>) {
     )
     .all(projectId);
 
+  // Overdue tasks
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueTasks = db
+    .prepare(
+      `SELECT t.id, t.title, t.due_date, t.priority, e.name as epic_name
+       FROM tasks t
+       JOIN epics e ON e.id = t.epic_id
+       WHERE e.project_id = ? AND t.due_date < ? AND t.status NOT IN ('done')
+       ORDER BY t.due_date ASC`
+    )
+    .all(projectId, today) as Array<Record<string, unknown>>;
+
   // Recent activity (last 10)
   const recentActivity = db
     .prepare(
@@ -125,11 +137,50 @@ function handleDashboard(args: Record<string, unknown>) {
     .prepare('SELECT id, title, note_type, created_at FROM notes ORDER BY created_at DESC LIMIT 5')
     .all();
 
+  // Generate natural language summary
+  const s = stats as Record<string, number>;
+  const p = project as Record<string, unknown>;
+  const epicList = epics as Array<Record<string, unknown>>;
+
+  const summaryParts: string[] = [];
+  summaryParts.push(`${p.name}: ${s.total_tasks} tasks across ${s.total_epics} epics. ${s.completion_pct}% complete.`);
+
+  const activeEpics = epicList.filter((e) => e.status === 'in_progress');
+  if (activeEpics.length > 0) {
+    const activeStr = activeEpics
+      .map((e) => `${e.name} (${e.done_count}/${e.task_count} done)`)
+      .join(', ');
+    summaryParts.push(`Active: ${activeStr}.`);
+  }
+
+  const nextEpic = epicList.find((e) => e.status === 'planned');
+  if (nextEpic) {
+    summaryParts.push(`Next up: ${nextEpic.name} (${nextEpic.task_count} tasks).`);
+  }
+
+  if (s.tasks_blocked > 0) {
+    summaryParts.push(`${s.tasks_blocked} blocked task(s).`);
+  } else {
+    summaryParts.push('No blocked tasks.');
+  }
+
+  if (overdueTasks.length > 0) {
+    summaryParts.push(`${overdueTasks.length} overdue task(s).`);
+  }
+
+  if (s.tasks_in_progress > 0) {
+    summaryParts.push(`${s.tasks_in_progress} in progress.`);
+  }
+
+  const summary = summaryParts.join(' ');
+
   return {
+    summary,
     project,
     stats,
     epics,
     blocked_tasks: blockedTasks,
+    overdue_tasks: overdueTasks,
     recent_activity: recentActivity,
     recent_notes: recentNotes,
   };
