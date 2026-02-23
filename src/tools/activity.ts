@@ -203,6 +203,28 @@ function handleTaskBatchUpdate(args: Record<string, unknown>) {
         );
       }
 
+      // Auto time tracking
+      if (status === 'done' && oldRow.status !== 'done' && !newRow.actual_hours) {
+        const startEntry = db.prepare(
+          `SELECT created_at FROM activity_log
+           WHERE entity_type = 'task' AND entity_id = ? AND action = 'status_changed'
+             AND field_name = 'status' AND new_value = 'in_progress'
+           ORDER BY created_at DESC LIMIT 1`
+        ).get(id) as { created_at: string } | undefined;
+
+        if (startEntry) {
+          const startMs = new Date(startEntry.created_at + 'Z').getTime();
+          const nowMs = Date.now();
+          const hours = Math.round(((nowMs - startMs) / 3_600_000) * 10) / 10;
+          if (hours > 0) {
+            db.prepare('UPDATE tasks SET actual_hours = ? WHERE id = ?').run(hours, id);
+            newRow.actual_hours = hours;
+            logActivity(db, 'task', id, 'updated', 'actual_hours', null, String(hours),
+              `Task '${newRow.title}' auto-tracked: ${hours}h`);
+          }
+        }
+      }
+
       return newRow;
     });
   })();

@@ -58,6 +58,12 @@ export const definitions: Tool[] = [
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
         assigned_to: { type: 'string', description: 'Filter by assignee' },
         tag: { type: 'string', description: 'Filter by tag' },
+        sort_by: {
+          type: 'string',
+          enum: ['priority', 'created', 'due_date', 'status'],
+          default: 'priority',
+          description: 'Sort order: priority (critical first), created (newest first), due_date (earliest first), status (actionable first)',
+        },
         limit: { type: 'integer', default: 50, description: 'Max results' },
       },
     },
@@ -137,6 +143,24 @@ function handleTaskCreate(args: Record<string, unknown>) {
   return task;
 }
 
+const PRIORITY_ORDER = "CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END";
+const STATUS_ORDER = "CASE t.status WHEN 'blocked' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 END";
+
+function getTaskOrderClause(sortBy: string): string {
+  switch (sortBy) {
+    case 'priority':
+      return `${PRIORITY_ORDER}, ${STATUS_ORDER}, t.sort_order, t.created_at`;
+    case 'status':
+      return `${STATUS_ORDER}, ${PRIORITY_ORDER}, t.sort_order, t.created_at`;
+    case 'due_date':
+      return `t.due_date IS NULL, t.due_date ASC, ${PRIORITY_ORDER}, t.created_at`;
+    case 'created':
+      return `t.created_at DESC`;
+    default:
+      return `${PRIORITY_ORDER}, ${STATUS_ORDER}, t.sort_order, t.created_at`;
+  }
+}
+
 function handleTaskList(args: Record<string, unknown>) {
   const db = getDb();
   const epicId = args.epic_id as number | undefined;
@@ -144,6 +168,7 @@ function handleTaskList(args: Record<string, unknown>) {
   const priority = args.priority as string | undefined;
   const assignedTo = args.assigned_to as string | undefined;
   const tag = args.tag as string | undefined;
+  const sortBy = (args.sort_by as string) ?? 'priority';
   const limit = (args.limit as number) ?? 50;
 
   const whereClauses: string[] = [];
@@ -181,7 +206,7 @@ function handleTaskList(args: Record<string, unknown>) {
     LEFT JOIN subtasks s ON s.task_id = t.id
     ${whereStr}
     GROUP BY t.id
-    ORDER BY t.sort_order, t.created_at
+    ORDER BY ${getTaskOrderClause(sortBy)}
     LIMIT ?
   `;
 
@@ -236,6 +261,29 @@ function handleTaskUpdate(args: Record<string, unknown>) {
   logEntityUpdate(db, 'task', id, newRow.title as string, oldRow, newRow, [
     'status', 'priority', 'assigned_to', 'title',
   ]);
+
+  // Auto time tracking: when status changes to done and actual_hours wasn't manually set
+  const statusChanged = args.status && oldRow.status !== args.status;
+  if (statusChanged && args.status === 'done' && !args.actual_hours && !newRow.actual_hours) {
+    const startEntry = db.prepare(
+      `SELECT created_at FROM activity_log
+       WHERE entity_type = 'task' AND entity_id = ? AND action = 'status_changed'
+         AND field_name = 'status' AND new_value = 'in_progress'
+       ORDER BY created_at DESC LIMIT 1`
+    ).get(id) as { created_at: string } | undefined;
+
+    if (startEntry) {
+      const startMs = new Date(startEntry.created_at + 'Z').getTime();
+      const nowMs = Date.now();
+      const hours = Math.round(((nowMs - startMs) / 3_600_000) * 10) / 10; // 1 decimal
+      if (hours > 0) {
+        db.prepare('UPDATE tasks SET actual_hours = ? WHERE id = ?').run(hours, id);
+        (newRow as Record<string, unknown>).actual_hours = hours;
+        logActivity(db, 'task', id, 'updated', 'actual_hours', null, String(hours),
+          `Task '${newRow.title}' auto-tracked: ${hours}h`);
+      }
+    }
+  }
 
   return newRow;
 }
