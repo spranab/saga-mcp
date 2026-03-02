@@ -1,0 +1,7 @@
+.mcp.json
+.claude/
+.env
+*.db
+*.db-wal
+*.db-shm
+icon.svg

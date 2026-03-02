@@ -57,6 +57,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools: ALL_TOOLS };
 });
 
+function friendlyError(msg: string): string {
+  if (msg.includes('UNIQUE constraint failed')) {
+    const match = msg.match(/UNIQUE constraint failed: \w+\.(\w+)/);
+    return match ? `A record with that ${match[1]} already exists.` : 'A record with that value already exists.';
+  }
+  if (msg.includes('NOT NULL constraint failed')) {
+    const match = msg.match(/NOT NULL constraint failed: \w+\.(\w+)/);
+    return match ? `Missing required field: ${match[1]}.` : 'A required field is missing.';
+  }
+  if (msg.includes('FOREIGN KEY constraint failed')) {
+    return 'Referenced record not found. Check that the parent item exists.';
+  }
+  if (msg.includes('no such table')) {
+    return 'Database not initialized. Run tracker_init first.';
+  }
+  return msg;
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     const { name, arguments: args } = request.params;
@@ -70,11 +88,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
     };
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const friendly = friendlyError(msg);
     return {
       content: [
         {
           type: 'text',
-          text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Error: ${friendly}`,
         },
       ],
       isError: true,
