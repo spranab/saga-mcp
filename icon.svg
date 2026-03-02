@@ -1,12 +1,67 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="0%" style="stop-color:#7c3aed"/>
+      <stop offset="50%" style="stop-color:#6366f1"/>
       <stop offset="100%" style="stop-color:#4f46e5"/>
     </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a78bfa"/>
+      <stop offset="100%" style="stop-color:#818cf8"/>
+    </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
-  <text x="256" y="300" font-family="system-ui, -apple-system, sans-serif" font-size="280" font-weight="700" fill="white" text-anchor="middle" dominant-baseline="central">S</text>
-  <rect x="80" y="390" width="352" height="6" rx="3" fill="rgba(255,255,255,0.3)"/>
-  <rect x="80" y="390" width="220" height="6" rx="3" fill="rgba(255,255,255,0.7)"/>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Subtle inner glow -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+
+  <!-- Board/kanban lanes (subtle background texture) -->
+  <rect x="90" y="100" width="100" height="312" rx="12" fill="rgba(255,255,255,0.06)"/>
+  <rect x="206" y="100" width="100" height="312" rx="12" fill="rgba(255,255,255,0.06)"/>
+  <rect x="322" y="100" width="100" height="312" rx="12" fill="rgba(255,255,255,0.06)"/>
+
+  <!-- Task cards - column 1 (To Do) -->
+  <rect x="102" y="140" width="76" height="44" rx="8" fill="rgba(255,255,255,0.85)"/>
+  <rect x="102" y="196" width="76" height="44" rx="8" fill="rgba(255,255,255,0.85)"/>
+  <rect x="102" y="252" width="76" height="44" rx="8" fill="rgba(255,255,255,0.85)"/>
+
+  <!-- Task cards - column 2 (In Progress) -->
+  <rect x="218" y="140" width="76" height="44" rx="8" fill="rgba(255,255,255,0.95)"/>
+  <rect x="218" y="196" width="76" height="44" rx="8" fill="rgba(255,255,255,0.95)"/>
+
+  <!-- Task cards - column 3 (Done) -->
+  <rect x="334" y="140" width="76" height="44" rx="8" fill="url(#accent)" opacity="0.9"/>
+  <rect x="334" y="196" width="76" height="44" rx="8" fill="url(#accent)" opacity="0.9"/>
+  <rect x="334" y="252" width="76" height="44" rx="8" fill="url(#accent)" opacity="0.9"/>
+  <rect x="334" y="308" width="76" height="44" rx="8" fill="url(#accent)" opacity="0.9"/>
+
+  <!-- Checkmarks on done cards -->
+  <polyline points="352,162 360,170 374,154" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="352,218 360,226 374,210" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="352,274 360,282 374,266" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="352,330 360,338 374,322" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Mini lines on to-do cards -->
+  <rect x="112" y="154" width="40" height="4" rx="2" fill="rgba(99,102,241,0.4)"/>
+  <rect x="112" y="164" width="28" height="4" rx="2" fill="rgba(99,102,241,0.25)"/>
+  <rect x="112" y="210" width="36" height="4" rx="2" fill="rgba(99,102,241,0.4)"/>
+  <rect x="112" y="220" width="44" height="4" rx="2" fill="rgba(99,102,241,0.25)"/>
+  <rect x="112" y="266" width="44" height="4" rx="2" fill="rgba(99,102,241,0.4)"/>
+  <rect x="112" y="276" width="32" height="4" rx="2" fill="rgba(99,102,241,0.25)"/>
+
+  <!-- Mini lines on in-progress cards -->
+  <rect x="228" y="154" width="42" height="4" rx="2" fill="rgba(99,102,241,0.5)"/>
+  <rect x="228" y="164" width="30" height="4" rx="2" fill="rgba(99,102,241,0.3)"/>
+  <rect x="228" y="210" width="38" height="4" rx="2" fill="rgba(99,102,241,0.5)"/>
+  <rect x="228" y="220" width="48" height="4" rx="2" fill="rgba(99,102,241,0.3)"/>
+
+  <!-- Column headers -->
+  <text x="140" y="124" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="rgba(255,255,255,0.5)" text-anchor="middle">TODO</text>
+  <text x="256" y="124" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="rgba(255,255,255,0.6)" text-anchor="middle">ACTIVE</text>
+  <text x="372" y="124" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="rgba(255,255,255,0.7)" text-anchor="middle">DONE</text>
+
+  <!-- SAGA text at bottom -->
+  <text x="256" y="436" font-family="system-ui, -apple-system, sans-serif" font-size="52" font-weight="800" fill="white" text-anchor="middle" letter-spacing="12">SAGA</text>
 </svg>
