@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.spranab/saga-mcp",
+  "description": "Jira-like project tracker for AI agents with SQLite, full task hierarchy, and dashboard",
+  "repository": {
+    "url": "https://github.com/spranab/saga-mcp",
+    "source": "github"
+  },
+  "version": "1.5.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "saga-mcp",
+      "version": "1.5.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": []
+    }
+  ]
+}
