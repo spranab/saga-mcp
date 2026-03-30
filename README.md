@@ -6,6 +6,10 @@ A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project
 
 **No more scattered markdown files.** saga-mcp gives your AI assistant a structured database to track projects, epics, tasks, subtasks, notes, and decisions across sessions.
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/spranab-saga-mcp).
+
 ## Features
 
 - **Full hierarchy**: Projects > Epics > Tasks > Subtasks
