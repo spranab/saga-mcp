@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS epics (
   priority      TEXT NOT NULL DEFAULT 'medium'
                   CHECK (priority IN ('low', 'medium', 'high', 'critical')),
   sort_order    INTEGER NOT NULL DEFAULT 0,
+  branch        TEXT,
   tags          TEXT NOT NULL DEFAULT '[]',
   metadata      TEXT NOT NULL DEFAULT '{}',
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),

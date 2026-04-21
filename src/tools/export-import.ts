@@ -104,6 +104,7 @@ function handleExport(args: Record<string, unknown>) {
       status: epic.status,
       priority: epic.priority,
       sort_order: epic.sort_order,
+      branch: epic.branch,
       tags: epic.tags,
       metadata: epic.metadata,
       tasks: taskData,
@@ -154,7 +155,7 @@ function handleExport(args: Record<string, unknown>) {
   }));
 
   return {
-    format_version: '1.1',
+    format_version: '1.2',
     exported_at: new Date().toISOString(),
     project: {
       name: project.name,
@@ -173,8 +174,8 @@ function handleImport(args: Record<string, unknown>) {
   const data = args.data as Record<string, unknown>;
 
   const version = data.format_version as string;
-  if (version !== '1.0' && version !== '1.1') {
-    throw new Error(`Unsupported format version: ${version}. Expected "1.0" or "1.1".`);
+  if (version !== '1.0' && version !== '1.1' && version !== '1.2') {
+    throw new Error(`Unsupported format version: ${version}. Expected "1.0", "1.1", or "1.2".`);
   }
 
   const projectData = data.project as Record<string, unknown>;
@@ -213,8 +214,8 @@ function handleImport(args: Record<string, unknown>) {
 
     for (const epicData of epics) {
       const epic = db.prepare(
-        `INSERT INTO epics (project_id, name, description, status, priority, sort_order, tags, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+        `INSERT INTO epics (project_id, name, description, status, priority, sort_order, branch, tags, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
       ).get(
         newProjectId,
         epicData.name,
@@ -222,6 +223,7 @@ function handleImport(args: Record<string, unknown>) {
         epicData.status ?? 'planned',
         epicData.priority ?? 'medium',
         epicData.sort_order ?? 0,
+        epicData.branch ?? null,
         epicData.tags ?? '[]',
         epicData.metadata ?? '{}'
       ) as Record<string, unknown>;
