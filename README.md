@@ -1,10 +1,65 @@
 # saga-mcp
 
+[![npm](https://img.shields.io/npm/v/saga-mcp)](https://www.npmjs.com/package/saga-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/saga-mcp)](https://www.npmjs.com/package/saga-mcp)
 [![IdeaCred](https://ideacred.com/api/badge/spranab/saga-mcp)](https://ideacred.com/profile/spranab)
 
-A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy and activity logging — so LLMs never lose track.
+Your coding agent loses the plan between sessions. You come back tomorrow and
+it has no idea which of the five things you agreed on are done, which one is
+blocked on which, or why you rejected the second approach — because the plan
+lived in the context window, or in a `TODO.md` nobody updates.
 
-**No more scattered markdown files.** saga-mcp gives your AI assistant a structured database to track projects, epics, tasks, subtasks, notes, and decisions across sessions.
+saga-mcp gives the agent a real tracker instead: a SQLite file in your project
+holding projects, epics, tasks, subtasks, dependencies, comments, notes and
+decisions, exposed as 31 MCP tools. The agent writes to it as it works and
+reads the dashboard when it comes back. No accounts, no external service, no
+network calls — the database is a file you own.
+
+## Install (60 seconds)
+
+Claude Code — add to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "saga": {
+      "command": "npx",
+      "args": ["-y", "saga-mcp"],
+      "env": { "DB_PATH": "/absolute/path/to/your/project/.tracker.db" }
+    }
+  }
+}
+```
+
+Restart the client. `DB_PATH` is the only setting; the file and schema are
+created on first use.
+
+## What it looks like
+
+**You:** "Set up tracking for the e-commerce API and plan out auth."
+
+```
+tracker_init({ project_name: "E-Commerce API" })
+epic_create({ project_id: 1, name: "Authentication", priority: "high" })
+task_create({ epic_id: 1, title: "Design auth schema", priority: "critical" })
+task_create({ epic_id: 1, title: "Implement JWT auth", depends_on: [1] })
+task_create({ epic_id: 1, title: "Add OAuth2 Google login", depends_on: [2] })
+```
+
+Tasks 2 and 3 come back **blocked** — their dependencies aren't done. Finish
+task 1 and task 2 unblocks itself.
+
+**Next session, you:** "Where were we?"
+
+```
+tracker_dashboard({})
+→ "E-Commerce API: 5 tasks across 2 epics. 40% complete.
+   Active: Authentication (2/3 done). Next up: Product Catalog (2 tasks).
+   1 blocked task(s)."
+```
+
+Plus the structured data behind it: stats, epics, blocked and overdue tasks,
+recent activity, notes.
 
 ## Features
 
@@ -23,9 +78,9 @@ A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project
 - **Auto time tracking**: Hours computed automatically from activity log
 - **Cross-platform**: Works on macOS, Windows, and Linux
 
-## Quick Start
+## Other clients
 
-### With Claude Code
+### Claude Code
 
 Add to your project's `.mcp.json`:
 
@@ -306,6 +361,22 @@ DB_PATH=./test.db npm start
 
 - **Issues**: https://github.com/spranab/saga-mcp/issues
 - **Repository**: https://github.com/spranab/saga-mcp
+
+## Related projects
+
+Part of a set of agent infrastructure built by one person, meant to be used
+together:
+
+- [yantrikdb-mcp](https://github.com/yantrikos/yantrikdb-mcp) — persistent
+  cognitive memory for the same agent: what it learned, not what it planned.
+- [brainstorm-mcp](https://github.com/spranab/brainstorm-mcp) — multi-model
+  debate before you commit a plan to the tracker.
+- [swarmcode](https://github.com/spranab/swarmcode) — real-time channel
+  between Claude Code instances on different machines.
+- [truenas-mcp](https://github.com/spranab/truenas-mcp) — 278 TrueNAS SCALE
+  actions behind one hierarchical tool.
+- [mcpier](https://github.com/spranab/mcpier) — self-hosted MCP control plane
+  that keeps API keys off your clients.
 
 ## License
 

@@ -24,11 +24,18 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "project-tracker",
+    "project-management",
     "task-manager",
+    "task-tracker",
+    "issue-tracker",
     "claude",
+    "claude-code",
     "ai-agent",
+    "ai-agents",
+    "agent-tools",
     "sqlite",
     "jira-alternative",
     "llm-tools"
