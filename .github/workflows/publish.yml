@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.7.0)'
+        required: true
 
 jobs:
   publish:
@@ -13,14 +18,47 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+          cache: npm
 
       - run: npm ci
       - run: npm run build
-      - run: npm publish --access public --provenance
+
+      # Publishing is irreversible — a version number can never be reused — so
+      # the suite runs first. This is the only gate before the registry.
+      - name: Test
+        run: node --test
+        timeout-minutes: 5
+
+      # Catch the tag/package.json mismatch before it reaches npm, where the
+      # error is a confusing 404 rather than "you tagged the wrong version".
+      - name: Check the tag matches package.json
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          PKG="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $TAG does not match package.json ($PKG). Bump the version or retag."
+            exit 1
+          fi
+          echo "Publishing $PKG"
+
+      - name: Publish
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Explain a failed publish
+        if: failure()
+        run: |
+          echo "::notice::If this failed with 'E404 ... PUT https://registry.npmjs.org/saga-mcp',"
+          echo "::notice::the NPM_TOKEN secret is expired or lacks publish rights — npm returns 404"
+          echo "::notice::rather than 403 so it does not disclose whether a package exists."
+          echo "::notice::Mint a new automation token at npmjs.com/settings/~/tokens, then:"
+          echo "::notice::  gh secret set NPM_TOKEN"
+          echo "::notice::and re-run this workflow."
