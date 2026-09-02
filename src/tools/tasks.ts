@@ -3,6 +3,8 @@ import type Database from 'better-sqlite3';
 import { getDb } from '../db.js';
 import { buildUpdate, addTagFilter } from '../helpers/sql-builder.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
+import { slimListRow, LIST_DESCRIPTION_CHARS } from '../helpers/slim.js';
+import { resolveProjectId, taskScopeClause, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { resolveBranch } from '../helpers/git.js';
 import type { ToolHandler } from '../types.js';
 
@@ -51,19 +53,22 @@ export const definitions: Tool[] = [
   {
     name: 'task_list',
     description:
-      'List tasks with optional filters. If no epic_id given, lists across ALL epics. Includes subtask counts and dependency info. Pass branch="current" to restrict to tasks whose epic is scoped to the active git branch.',
+      'List tasks with optional filters. If no epic_id given, lists across ALL epics. Includes subtask counts and dependency info. ' +
+      'Rows are compact: null fields and metadata are omitted, and descriptions are truncated to ' + LIST_DESCRIPTION_CHARS + ' characters (trailing ellipsis) — call task_get for a full task. ' +
+      'Pass branch="current" to restrict to tasks whose epic is scoped to the active git branch.',
     annotations: { title: 'List Tasks', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
         epic_id: { type: 'integer', description: 'Filter by epic (omit for all tasks)' },
+        project_id: PROJECT_ID_SCHEMA,
         status: { type: 'string', enum: ['todo', 'in_progress', 'review', 'done', 'blocked'] },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
         assigned_to: { type: 'string', description: 'Filter by assignee' },
         tag: { type: 'string', description: 'Filter by tag' },
         branch: {
           type: 'string',
-          description: 'Filter by the git branch of the task\'s epic. Pass "current" to auto-detect; pass empty string to restrict to branch-agnostic epics. Omit to list all.',
+          description: 'Git branch filter: "current" = active branch, "" = branch-agnostic only, omit = all.',
         },
         sort_by: {
           type: 'string',
@@ -247,6 +252,11 @@ function handleTaskList(args: Record<string, unknown>) {
     whereClauses.push('t.epic_id = ?');
     params.push(epicId);
   }
+  const projectId = resolveProjectId(db, args);
+  if (projectId !== undefined) {
+    whereClauses.push(taskScopeClause('e'));
+    params.push(projectId);
+  }
   if (status) {
     whereClauses.push('t.status = ?');
     params.push(status);
@@ -289,7 +299,8 @@ function handleTaskList(args: Record<string, unknown>) {
   `;
 
   params.push(limit);
-  return db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  return rows.map((row) => slimListRow(row));
 }
 
 function handleTaskGet(args: Record<string, unknown>) {
@@ -320,7 +331,7 @@ function handleTaskGet(args: Record<string, unknown>) {
     .all(id);
 
   const comments = db
-    .prepare('SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC')
+    .prepare('SELECT * FROM comments WHERE task_id = ? AND is_deleted = 0 ORDER BY created_at ASC')
     .all(id);
 
   // Dependencies: what this task depends on

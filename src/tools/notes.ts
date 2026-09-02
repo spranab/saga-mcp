@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { addTagFilter } from '../helpers/sql-builder.js';
 import { logActivity } from '../helpers/activity-logger.js';
+import { resolveProjectId, noteScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -45,6 +46,7 @@ export const definitions: Tool[] = [
         },
         related_entity_type: { type: 'string', enum: ['project', 'epic', 'task'] },
         related_entity_id: { type: 'integer' },
+        project_id: PROJECT_ID_SCHEMA,
         tag: { type: 'string', description: 'Filter by a single tag' },
         limit: { type: 'integer', default: 30 },
       },
@@ -146,6 +148,12 @@ function handleNoteList(args: Record<string, unknown>) {
   }
   if (tag) {
     addTagFilter(whereClauses, params, tag, 'notes');
+  }
+  const projectId = resolveProjectId(db, args);
+  if (projectId !== undefined) {
+    const scope = noteScopeClause('notes');
+    whereClauses.push(scope.sql);
+    params.push(...repeatId(projectId, scope.paramCount));
   }
 
   const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';

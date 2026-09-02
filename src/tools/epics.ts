@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { buildUpdate } from '../helpers/sql-builder.js';
+import { slimList } from '../helpers/slim.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
 import { resolveBranch } from '../helpers/git.js';
 import type { ToolHandler } from '../types.js';
@@ -9,7 +10,7 @@ export const definitions: Tool[] = [
   {
     name: 'epic_create',
     description:
-      'Create an epic within a project. Epics group related tasks into a feature or workstream. Pass branch to scope the epic to a git branch (use "current" to auto-detect).',
+      'Create an epic within a project. Epics group related tasks into a feature or workstream.',
     annotations: { title: 'Create Epic', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -29,7 +30,7 @@ export const definitions: Tool[] = [
         },
         branch: {
           type: 'string',
-          description: 'Git branch this epic is scoped to. Pass "current" to auto-detect from the repo. Omit or pass empty string for a branch-agnostic (global) epic.',
+          description: 'Branch to scope this epic to: "current" = active branch, omit/"" = branch-agnostic.',
         },
         tags: { type: 'array', items: { type: 'string' } },
       },
@@ -39,7 +40,7 @@ export const definitions: Tool[] = [
   {
     name: 'epic_list',
     description:
-      'List epics for a project with task counts and completion stats. Optionally filter by status, priority, or branch. Pass branch="current" to auto-detect the active git branch; pass empty string to list only branch-agnostic epics.',
+      'List epics for a project with task counts and completion stats. Filter by status, priority or branch.',
     annotations: { title: 'List Epics', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -49,7 +50,7 @@ export const definitions: Tool[] = [
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
         branch: {
           type: 'string',
-          description: 'Filter by git branch. Pass "current" to auto-detect; pass empty string to list only branch-agnostic epics. Omit to list all.',
+          description: 'Git branch filter: "current" = active branch, "" = branch-agnostic only, omit = all.',
         },
       },
       required: ['project_id'],
@@ -71,7 +72,7 @@ export const definitions: Tool[] = [
         sort_order: { type: 'integer' },
         branch: {
           type: 'string',
-          description: 'Git branch this epic is scoped to. Pass "current" to auto-detect; pass empty string to clear (branch-agnostic).',
+          description: 'Branch to scope this epic to: "current" = active branch, "" = clear.',
         },
         tags: { type: 'array', items: { type: 'string' } },
       },
@@ -144,7 +145,7 @@ function handleEpicList(args: Record<string, unknown>) {
     ORDER BY e.sort_order, e.created_at
   `;
 
-  return db.prepare(sql).all(...params);
+  return slimList(db.prepare(sql).all(...params) as Array<Record<string, unknown>>);
 }
 
 function handleEpicUpdate(args: Record<string, unknown>) {

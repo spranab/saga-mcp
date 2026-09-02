@@ -1,6 +1,8 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { resolveBranch } from '../helpers/git.js';
+import { resolveProjectId, noteScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
+import { slimList } from '../helpers/slim.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -18,9 +20,10 @@ export const definitions: Tool[] = [
           items: { type: 'string', enum: ['project', 'epic', 'task', 'note'] },
           description: 'Limit search to specific entity types (omit for all)',
         },
+        project_id: PROJECT_ID_SCHEMA,
         branch: {
           type: 'string',
-          description: 'Filter epic/task results by git branch. Pass "current" to auto-detect; pass empty string to restrict to branch-agnostic epics. Omit to include all.',
+          description: 'Git branch filter: "current" = active branch, "" = branch-agnostic only, omit = all.',
         },
         limit: { type: 'integer', default: 20, description: 'Max results per entity type' },
       },
@@ -51,42 +54,68 @@ function handleSearch(args: Record<string, unknown>) {
     taskBranchParams.push(branchFilter);
   }
 
+  const projectId = resolveProjectId(db, args);
+  if (projectId !== undefined) {
+    epicBranchClause += ' AND e.project_id = ?';
+    epicBranchParams.push(projectId);
+    taskBranchClause += ' AND e.project_id = ?';
+    taskBranchParams.push(projectId);
+  }
+
+  // Search results are a shortlist to pick from, not the content itself — slim
+  // the rows and preview long text. Follow up with task_get / note_list.
+  const rows = (r: unknown[], truncate: string[] = ['description']) =>
+    slimList(r as Array<Record<string, unknown>>, truncate);
+
   const results: Record<string, unknown[]> = {};
 
   if (entityTypes.includes('project')) {
-    results.projects = db
-      .prepare('SELECT * FROM projects WHERE name LIKE ? OR description LIKE ? LIMIT ?')
-      .all(pattern, pattern, limit);
+    results.projects = rows(
+      projectId !== undefined
+        ? db.prepare('SELECT id, name, description, status FROM projects WHERE id = ? AND (name LIKE ? OR description LIKE ?) LIMIT ?')
+            .all(projectId, pattern, pattern, limit)
+        : db.prepare('SELECT id, name, description, status FROM projects WHERE name LIKE ? OR description LIKE ? LIMIT ?')
+            .all(pattern, pattern, limit)
+    );
   }
 
   if (entityTypes.includes('epic')) {
-    results.epics = db
+    results.epics = rows(db
       .prepare(
-        `SELECT e.*, p.name as project_name
+        `SELECT e.id, e.project_id, e.name, e.description, e.status, e.priority, e.branch, p.name as project_name
          FROM epics e
          JOIN projects p ON p.id = e.project_id
          WHERE (e.name LIKE ? OR e.description LIKE ?)${epicBranchClause}
          LIMIT ?`
       )
-      .all(pattern, pattern, ...epicBranchParams, limit);
+      .all(pattern, pattern, ...epicBranchParams, limit));
   }
 
   if (entityTypes.includes('task')) {
-    results.tasks = db
+    results.tasks = rows(db
       .prepare(
-        `SELECT t.*, e.name as epic_name
+        `SELECT t.id, t.epic_id, t.title, t.description, t.status, t.priority, t.assigned_to, t.due_date, e.name as epic_name
          FROM tasks t
          JOIN epics e ON e.id = t.epic_id
          WHERE (t.title LIKE ? OR t.description LIKE ?)${taskBranchClause}
          LIMIT ?`
       )
-      .all(pattern, pattern, ...taskBranchParams, limit);
+      .all(pattern, pattern, ...taskBranchParams, limit));
   }
 
   if (entityTypes.includes('note')) {
-    results.notes = db
-      .prepare('SELECT * FROM notes WHERE title LIKE ? OR content LIKE ? LIMIT ?')
-      .all(pattern, pattern, limit);
+    if (projectId !== undefined) {
+      const scope = noteScopeClause('notes');
+      results.notes = rows(db
+        .prepare(`SELECT id, title, content, note_type, related_entity_type, related_entity_id, created_at
+                  FROM notes WHERE (title LIKE ? OR content LIKE ?) AND ${scope.sql} LIMIT ?`)
+        .all(pattern, pattern, ...repeatId(projectId, scope.paramCount), limit), ['content']);
+    } else {
+      results.notes = rows(db
+        .prepare(`SELECT id, title, content, note_type, related_entity_type, related_entity_id, created_at
+                  FROM notes WHERE title LIKE ? OR content LIKE ? LIMIT ?`)
+        .all(pattern, pattern, limit), ['content']);
+    }
   }
 
   return results;
