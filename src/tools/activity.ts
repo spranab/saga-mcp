@@ -1,5 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
+import { resolveProjectId, activityScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
+import { slimList } from '../helpers/slim.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { reevaluateDownstream } from './tasks.js';
 import type { ToolHandler } from '../types.js';
@@ -19,6 +21,7 @@ export const definitions: Tool[] = [
           description: 'Filter by entity type',
         },
         entity_id: { type: 'integer', description: 'Filter by specific entity' },
+        project_id: PROJECT_ID_SCHEMA,
         action: {
           type: 'string',
           enum: ['created', 'updated', 'deleted', 'status_changed'],
@@ -94,12 +97,21 @@ function handleActivityLog(args: Record<string, unknown>) {
     whereClauses.push('created_at > ?');
     params.push(since);
   }
+  const projectId = resolveProjectId(db, args);
+  if (projectId !== undefined) {
+    const scope = activityScopeClause('activity_log');
+    whereClauses.push(scope.sql);
+    params.push(...repeatId(projectId, scope.paramCount));
+  }
 
   const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
   const sql = `SELECT * FROM activity_log ${whereStr} ORDER BY created_at DESC LIMIT ?`;
   params.push(limit);
 
-  return db.prepare(sql).all(...params);
+  // No tool takes an activity id, and most rows leave field_name/old_value/
+  // new_value null, so both are dead weight in a log an agent reads often.
+  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  return slimList(rows, [], ['id']);
 }
 
 function handleSessionDiff(args: Record<string, unknown>) {

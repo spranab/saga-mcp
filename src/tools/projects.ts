@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { buildUpdate } from '../helpers/sql-builder.js';
+import { slimList } from '../helpers/slim.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
 import type { ToolHandler } from '../types.js';
 
@@ -108,7 +109,7 @@ function handleProjectList(args: Record<string, unknown>) {
 
   sql += ' GROUP BY p.id ORDER BY p.created_at DESC';
 
-  return db.prepare(sql).all(...params);
+  return slimList(db.prepare(sql).all(...params) as Array<Record<string, unknown>>);
 }
 
 function handleProjectUpdate(args: Record<string, unknown>) {

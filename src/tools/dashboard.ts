@@ -2,6 +2,8 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { resolveBranch } from '../helpers/git.js';
+import { resolveProjectId, projectCount } from '../helpers/project-scope.js';
+import { slimList } from '../helpers/slim.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -13,10 +15,14 @@ export const definitions: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        project_id: { type: 'integer', description: 'Project ID (omit if only one project exists)' },
+        project_id: {
+          type: 'integer',
+          description:
+            'Project ID. Omit if the database holds one project, or if SAGA_PROJECT is set. With several projects and neither, the first is used and the rest are listed under other_projects.',
+        },
         branch: {
           type: 'string',
-          description: 'Scope to a git branch. Pass "current" to auto-detect; pass empty string to restrict to branch-agnostic epics. Omit to include everything.',
+          description: 'Scope to a git branch: "current" = active branch, "" = branch-agnostic only, omit = all.',
         },
       },
     },
@@ -39,9 +45,13 @@ export const definitions: Tool[] = [
 function handleDashboard(args: Record<string, unknown>) {
   const db = getDb();
 
-  let projectId = args.project_id as number | undefined;
-  if (!projectId) {
-    const first = db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: number } | undefined;
+  // Scope: explicit project_id > SAGA_PROJECT > the first project in the file.
+  // The last case is a guess, so say so rather than silently reporting on some
+  // other repo's work when one database holds several projects.
+  let projectId = resolveProjectId(db, args);
+  let guessed = false;
+  if (projectId === undefined) {
+    const first = db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get() as { id: number } | undefined;
     if (!first) {
       return {
         message: 'No projects found. Use tracker_init or project_create to get started.',
@@ -49,6 +59,7 @@ function handleDashboard(args: Record<string, unknown>) {
       };
     }
     projectId = first.id;
+    guessed = projectCount(db) > 1;
   }
 
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
@@ -98,7 +109,7 @@ function handleDashboard(args: Record<string, unknown>) {
     .get(projectId, ...branchParams);
 
   // Epics with task counts
-  const epics = db
+  const epics = slimList(db
     .prepare(
       `
     SELECT e.*,
@@ -115,7 +126,7 @@ function handleDashboard(args: Record<string, unknown>) {
     ORDER BY e.sort_order, e.created_at
   `
     )
-    .all(projectId, ...branchParams);
+    .all(projectId, ...branchParams) as Array<Record<string, unknown>>);
 
   // Blocked tasks
   const blockedTasks = db
@@ -144,11 +155,14 @@ function handleDashboard(args: Record<string, unknown>) {
     .all(projectId, today, ...branchParams) as Array<Record<string, unknown>>;
 
   // Recent activity (last 10)
-  const recentActivity = db
-    .prepare(
-      'SELECT summary, action, entity_type, entity_id, created_at FROM activity_log ORDER BY created_at DESC LIMIT 10'
-    )
-    .all();
+  const recentActivity = slimList(
+    db
+      .prepare(
+        'SELECT summary, action, entity_type, entity_id, created_at FROM activity_log ORDER BY created_at DESC LIMIT 10'
+      )
+      .all() as Array<Record<string, unknown>>,
+    []
+  );
 
   // Recent notes (last 5)
   const recentNotes = db
@@ -191,10 +205,23 @@ function handleDashboard(args: Record<string, unknown>) {
     summaryParts.push(`${s.tasks_in_progress} in progress.`);
   }
 
+  // When the project was a guess, tell the caller what else is in the file so it
+  // can pass project_id (or the operator can set SAGA_PROJECT) instead.
+  const otherProjects = guessed
+    ? db.prepare('SELECT id, name, status FROM projects WHERE id != ? ORDER BY id').all(projectId)
+    : [];
+  if (otherProjects.length > 0) {
+    summaryParts.push(
+      `Note: this database holds ${otherProjects.length + 1} projects and none was specified — ` +
+        `showing '${p.name}'. Pass project_id, or set SAGA_PROJECT, to scope to another.`
+    );
+  }
+
   const summary = summaryParts.join(' ');
 
   return {
     summary,
+    ...(otherProjects.length > 0 ? { other_projects: otherProjects } : {}),
     project,
     branch_scope: branchLabel,
     stats,
