@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/saga-mcp)](https://www.npmjs.com/package/saga-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/saga-mcp)](https://www.npmjs.com/package/saga-mcp)
+[![license](https://img.shields.io/npm/l/saga-mcp)](https://github.com/spranab/saga-mcp/blob/master/LICENSE)
 [![IdeaCred](https://ideacred.com/api/badge/spranab/saga-mcp)](https://ideacred.com/profile/spranab)
 
 Your coding agent loses the plan between sessions. You come back tomorrow and
