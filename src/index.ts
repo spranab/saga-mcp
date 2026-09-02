@@ -48,13 +48,44 @@ const ALL_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> =
   ...exportImportHandlers,
 };
 
+/**
+ * The full tool list costs ~6,000 tokens of context in every session before any
+ * work happens. SAGA_TOOLS=core exposes the subset that covers ordinary tracking
+ * (~2,300 tokens); handlers stay registered either way, so a client that already
+ * knows a tool name can still call it. Unset (or "full") keeps every tool listed.
+ */
+const CORE_TOOLS = new Set([
+  'tracker_init',
+  'tracker_dashboard',
+  'project_list',
+  'epic_create',
+  'epic_list',
+  'task_create',
+  'task_list',
+  'task_get',
+  'task_update',
+  'subtask_create',
+  'note_save',
+  'comment_add',
+]);
+
+function listedTools(): Tool[] {
+  const mode = (process.env.SAGA_TOOLS ?? 'full').trim().toLowerCase();
+  if (mode === 'full' || mode === '') return ALL_TOOLS;
+  if (mode !== 'core') {
+    console.error(`Unknown SAGA_TOOLS value '${mode}' — expected 'core' or 'full'. Listing all tools.`);
+    return ALL_TOOLS;
+  }
+  return ALL_TOOLS.filter((t) => CORE_TOOLS.has(t.name));
+}
+
 const server = new Server(
   { name: 'tracker', version: '1.0.0' },
   { capabilities: { tools: {} } }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools: ALL_TOOLS };
+  return { tools: listedTools() };
 });
 
 function friendlyError(msg: string): string {
@@ -85,7 +116,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const result = handler(args ?? {});
     return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      // Compact, not pretty-printed: indentation costs ~22% of every response
+      // in tokens and buys the model nothing.
+      content: [{ type: 'text', text: JSON.stringify(result) }],
     };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -105,7 +138,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('Tracker MCP Server running on stdio');
+  const listed = listedTools().length;
+  console.error(
+    `Tracker MCP Server running on stdio (${listed} of ${ALL_TOOLS.length} tools listed` +
+      `${listed < ALL_TOOLS.length ? ' — SAGA_TOOLS=core' : ''})`
+  );
 }
 
 process.on('SIGINT', () => {
