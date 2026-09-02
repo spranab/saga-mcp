@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS comments (
   task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   author     TEXT,
   content    TEXT NOT NULL,
+  is_deleted INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT,
+  deleted_by TEXT,
+  delete_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

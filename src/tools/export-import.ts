@@ -93,6 +93,10 @@ function handleExport(args: Record<string, unknown>) {
           author: c.author,
           content: c.content,
           created_at: c.created_at,
+          is_deleted: c.is_deleted,
+          deleted_at: c.deleted_at,
+          deleted_by: c.deleted_by,
+          delete_reason: c.delete_reason,
         })),
       };
     });
@@ -291,8 +295,17 @@ function handleImport(args: Record<string, unknown>) {
         const comments = (taskData.comments as Array<Record<string, unknown>>) ?? [];
         for (const commentData of comments) {
           db.prepare(
-            'INSERT INTO comments (task_id, author, content) VALUES (?, ?, ?)'
-          ).run(newTaskId, commentData.author ?? null, commentData.content);
+            `INSERT INTO comments (task_id, author, content, is_deleted, deleted_at, deleted_by, delete_reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            newTaskId,
+            commentData.author ?? null,
+            commentData.content,
+            commentData.is_deleted ? 1 : 0,
+            commentData.deleted_at ?? null,
+            commentData.deleted_by ?? null,
+            commentData.delete_reason ?? null
+          );
           commentCount++;
         }
       }
