@@ -11,7 +11,7 @@ lived in the context window, or in a `TODO.md` nobody updates.
 
 saga-mcp gives the agent a real tracker instead: a SQLite file in your project
 holding projects, epics, tasks, subtasks, dependencies, comments, notes and
-decisions, exposed as 31 MCP tools. The agent writes to it as it works and
+decisions, exposed as 33 MCP tools. The agent writes to it as it works and
 reads the dashboard when it comes back. No accounts, no external service, no
 network calls — the database is a file you own.
 
@@ -65,14 +65,15 @@ recent activity, notes.
 
 - **Full hierarchy**: Projects > Epics > Tasks > Subtasks
 - **Task dependencies**: Express sequencing with auto-block/unblock when deps are met
-- **Comments**: Threaded discussions on tasks — leave breadcrumbs across sessions
+- **Comments**: Threaded discussions on tasks — leave breadcrumbs across sessions, with reversible soft-delete
+- **Web UI**: `saga-web` serves a local dashboard for browsing *and* editing the same database
 - **Templates**: Reusable task sets with `{variable}` substitution
 - **Dashboard**: One tool call gives full overview with natural language summary
 - **SQLite**: Self-contained `.tracker.db` file per project — zero setup, no external database
 - **Activity log**: Every mutation is automatically tracked with old/new values
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **31 focused tools**: With MCP safety annotations on every tool
+- **33 focused tools**: With MCP safety annotations on every tool
 - **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
 - **Auto time tracking**: Hours computed automatically from activity log
@@ -130,8 +131,28 @@ saga-mcp requires a single environment variable:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_PATH` | Yes | Absolute path to the `.tracker.db` SQLite file. The file and schema are auto-created on first use. |
+| `SAGA_PROJECT` | No | Scope every tool to one project, by id or name. Set this per repo when several repos share one database. Unset, tools read across the whole file. |
+| `SAGA_TOOLS` | No | `full` (default) lists all 33 tools. `core` lists only the 12 an ordinary tracking session needs, cutting ~3,300 tokens of context per session. Tools left off the list still work if called by name. |
 
 No API keys, no accounts, no external services. Everything is stored locally in the SQLite file you specify.
+
+### Token cost
+
+The tool list is context every session pays before any work happens, and list responses are
+context it pays again on every call. Both are kept deliberately small:
+
+- Responses are compact JSON — no pretty-print indentation, which measured 20-27% of every response
+- `task_list` rows omit nulls and `metadata`, and truncate descriptions to 120 characters
+  (call `task_get` for a task's full text) — 19-39% smaller depending on how long your descriptions run
+- `activity_log` omits null columns and the row id (no tool takes one) — about 27% smaller
+- `tracker_search` returns previews rather than whole records — about 47% smaller; follow up with
+  `task_get` or `note_list` for the full text
+- `SAGA_TOOLS=core` drops the listed tool surface from ~6,000 to ~2,700 tokens
+
+`note_list` deliberately keeps full note content — it is the retrieval tool, not a preview.
+
+Set `SAGA_TOOLS=core` when an agent only tracks work; leave it unset when you want templates,
+import/export, session diffs and the rest discoverable.
 
 ## Tools
 
@@ -181,7 +202,9 @@ No API keys, no accounts, no external services. Everything is stored locally in 
 | Tool | Description | Annotations |
 |------|-------------|-------------|
 | `comment_add` | Add a comment to a task (threaded discussion) | `readOnly: false` |
-| `comment_list` | List all comments on a task | `readOnly: true` |
+| `comment_list` | List comments on a task (removed ones hidden unless `include_deleted`) | `readOnly: true` |
+| `comment_delete` | Remove a comment — soft delete, row kept for audit | `readOnly: false`, `idempotent: true` |
+| `comment_restore` | Restore a removed comment | `readOnly: false`, `idempotent: true` |
 
 ### Templates
 
@@ -280,6 +303,99 @@ task_update({ id: 5, status: "done" })
 
 Comments persist across sessions — next time an agent calls `task_get(5)`, it sees the full discussion thread.
 
+If a comment turns out to be wrong, retract it without losing the trail:
+
+```
+comment_delete({ id: 12, reason: "Root cause was wrong — it was a proxy timeout", deleted_by: "pranab" })
+```
+
+The row stays in the database and in the activity log. `comment_list` and `task_get` skip it,
+`comment_list({ task_id: 5, include_deleted: true })` shows it with its reason, and
+`comment_restore({ id: 12 })` brings it back. Nothing an agent removes is unrecoverable.
+
+## One database, many projects
+
+saga-mcp works either way: a `.tracker.db` per repo (portable, keeps unrelated work apart),
+or one shared database that every repo points at.
+
+The shared setup needs one extra thing. `projects` is the top-level table, so a shared file holds
+several projects — but `task_list`, `note_list`, `activity_log` and `tracker_search` read across
+the whole file unless told otherwise. An agent in repo B would see repo A's tasks. Set
+`SAGA_PROJECT` per repo and each agent sees only its own:
+
+```json
+{
+  "mcpServers": {
+    "saga": {
+      "command": "npx",
+      "args": ["-y", "saga-mcp"],
+      "env": {
+        "DB_PATH": "/Users/you/saga/central.tracker.db",
+        "SAGA_PROJECT": "Payments platform"
+      }
+    }
+  }
+}
+```
+
+`SAGA_PROJECT` takes a project id or a project name (case-insensitive), and fails on startup with
+the list of real projects if it matches neither. Every scoped tool also accepts an explicit
+`project_id` argument, which wins over the environment variable.
+
+| Setup | What to set | Result |
+|-------|-------------|--------|
+| One database per repo | `DB_PATH` | Nothing to scope — one project per file |
+| Shared database, per-repo agents | `DB_PATH` + `SAGA_PROJECT` | Each agent sees only its project |
+| Shared database, one agent over everything | `DB_PATH` | Tools read across all projects |
+
+With neither `SAGA_PROJECT` nor a `project_id`, `tracker_dashboard` falls back to the first project
+in the file and says so — the response carries `other_projects` and the summary explains that the
+project was a guess, rather than silently reporting on the wrong repo.
+
+The web UI is unaffected either way: its project switcher lists every project in the database, and
+each tab is scoped to the selected one.
+
+## Web UI
+
+Everything above is agent-facing. `saga-web` puts the same database in a browser — for the times
+when reviewing a spec an agent just wrote, or fixing one field by hand, is faster than another prompt.
+
+```bash
+npx -p saga-mcp saga-web ./.tracker.db --open
+```
+
+Or against a database you already point your MCP server at:
+
+```bash
+saga-web --db ~/saga/central.tracker.db --port 8080
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db <path>` | `$DB_PATH` | Database to open. A positional path works too. |
+| `--port <n>` | first free from `4319` | Omit it and saga-web takes the first free port, so one instance per project just works. `--port N` binds exactly N and fails if taken; `--port 0` lets the OS choose. Also `SAGA_WEB_PORT`. |
+| `--host <addr>` | `127.0.0.1` | Bind address. Local-only by default. |
+| `--read-only` | off | Serve the UI with every editing control removed. |
+| `--open` | off | Open the UI in your default browser. |
+
+What you get:
+
+- **Overview** — stats, per-epic progress, blocked and overdue tasks
+- **Board** — kanban across the five task statuses; drag a card to change its status
+- **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an agent just wrote
+- **Notes** and **Activity** — decisions and the complete change history
+- **Task drawer** — edit any field, tick subtasks, comment, remove or restore a comment
+- **Project switcher** — every project in the database, so one central `.tracker.db` covers all your repos; every tab, including Activity, is scoped to the selected project
+
+Writes from the UI call the *same handlers* the MCP tools do, so edits you make by hand are
+validated identically and land in the same activity log as the agent's — an agent calling
+`tracker_dashboard` after you fix something sees the fix and how it happened.
+
+A few deliberate limits: it binds to `127.0.0.1` unless you ask otherwise, it has no
+authentication (don't put it on a shared network), and it will not create a database — point it
+at one your MCP server already uses. Separate `.tracker.db` files are not yet aggregated into
+one view; a single database with multiple projects is.
+
 ## How It Works
 
 saga-mcp stores everything in a single SQLite file (`.tracker.db`) per project. The database is auto-created on first use with all tables and indexes — no migration step needed.
@@ -355,6 +471,9 @@ cd saga-mcp
 npm install
 npm run build
 DB_PATH=./test.db npm start
+
+# the web UI against the same database
+node dist/web/index.js ./test.db --open
 ```
 
 ## Support
