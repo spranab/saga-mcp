@@ -1,12 +1,13 @@
 {
   "name": "saga-mcp",
   "mcpName": "io.github.spranab/saga-mcp",
-  "version": "1.6.0",
-  "description": "A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy (Projects > Epics > Tasks > Subtasks), activity logging, and a dashboard — so LLMs never lose track.",
+  "version": "1.7.0",
+  "description": "A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy (Projects > Epics > Tasks > Subtasks), activity logging, and a dashboard \u2014 so LLMs never lose track.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "saga-mcp": "dist/index.js"
+    "saga-mcp": "dist/index.js",
+    "saga-web": "dist/web/index.js"
   },
   "files": [
     "dist",
@@ -19,8 +20,11 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
+    "web": "tsc && node dist/web/index.js",
     "dev": "tsc && node dist/index.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "npm run build && node --test",
+    "test:only": "node --test"
   },
   "keywords": [
     "mcp",

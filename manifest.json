@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "saga-mcp",
   "display_name": "Saga — Project Tracker for AI Agents",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy and activity logging — so LLMs never lose track.",
-  "long_description": "Saga gives your AI assistant a structured SQLite database to track projects, epics, tasks, subtasks, notes, and decisions across sessions. No more scattered markdown files — one `tracker_dashboard` call gives full project context to resume work.\n\n**Key features:**\n- Full hierarchy: Projects > Epics > Tasks > Subtasks\n- Task dependencies: Express sequencing with auto-block/unblock\n- Comments: Threaded discussions on tasks for decision trails\n- Templates: Reusable task sets with variable substitution\n- Dashboard: One tool call gives full overview with natural language summary\n- SQLite: Self-contained `.tracker.db` file per project — zero setup\n- Activity log: Every mutation is automatically tracked\n- Notes system: Decisions, context, meeting notes, blockers\n- Batch operations: Create multiple subtasks or update multiple tasks in one call\n- 31 focused tools with safety annotations\n- Import/export: Full project backup and migration as JSON",
+  "long_description": "Saga gives your AI assistant a structured SQLite database to track projects, epics, tasks, subtasks, notes, and decisions across sessions. No more scattered markdown files — one `tracker_dashboard` call gives full project context to resume work.\n\n**Key features:**\n- Full hierarchy: Projects > Epics > Tasks > Subtasks\n- Task dependencies: Express sequencing with auto-block/unblock\n- Comments: Threaded discussions on tasks for decision trails, with reversible soft-delete\n- Templates: Reusable task sets with variable substitution\n- Dashboard: One tool call gives full overview with natural language summary\n- SQLite: Self-contained `.tracker.db` file per project — zero setup\n- Activity log: Every mutation is automatically tracked\n- Notes system: Decisions, context, meeting notes, blockers\n- Batch operations: Create multiple subtasks or update multiple tasks in one call\n- 33 focused tools with safety annotations\n- Web UI: `saga-web` serves a local dashboard for browsing and editing the same database\n- Import/export: Full project backup and migration as JSON",
   "author": {
     "name": "Pranab Sarkar",
     "email": "developer@pranab.co.in",
@@ -36,7 +36,9 @@
       "command": "node",
       "args": ["${__dirname}/dist/index.js"],
       "env": {
-        "DB_PATH": "${user_config.db_path}"
+        "DB_PATH": "${user_config.db_path}",
+        "SAGA_TOOLS": "${user_config.tool_surface}",
+        "SAGA_PROJECT": "${user_config.project_scope}"
       }
     }
   },
@@ -58,7 +60,9 @@
     { "name": "subtask_update", "description": "Update subtask title/status" },
     { "name": "subtask_delete", "description": "Delete subtask(s) — supports batch" },
     { "name": "comment_add", "description": "Add a comment to a task (threaded discussion)" },
-    { "name": "comment_list", "description": "List all comments on a task" },
+    { "name": "comment_list", "description": "List comments on a task (soft-deleted ones hidden by default)" },
+    { "name": "comment_delete", "description": "Remove a comment (soft delete — kept for audit, reversible)" },
+    { "name": "comment_restore", "description": "Restore a comment removed with comment_delete" },
     { "name": "template_create", "description": "Create a reusable task template" },
     { "name": "template_list", "description": "List available templates" },
     { "name": "template_apply", "description": "Apply template to create tasks with variable substitution" },
@@ -85,6 +89,19 @@
       "title": "Database Path",
       "description": "Path to the .tracker.db SQLite file. The file and schema are auto-created on first use.",
       "required": true
+    },
+    "project_scope": {
+      "type": "string",
+      "title": "Project Scope",
+      "description": "Optional. When one database is shared by several projects, set this to a project id or name so tools only see that project. Leave blank to read across the whole database.",
+      "required": false
+    },
+    "tool_surface": {
+      "type": "string",
+      "title": "Tool Surface",
+      "description": "\"full\" lists all 33 tools. \"core\" lists only the 12 needed for ordinary tracking, saving ~3,300 tokens of context per session; the rest still work if called by name.",
+      "default": "full",
+      "required": false
     }
   }
 }
