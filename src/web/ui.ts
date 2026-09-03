@@ -400,6 +400,39 @@ function modal(title, fields, submitLabel, onSubmit) {
 
 /* ---------- shell ---------- */
 
+/* ---------- url state ---------- */
+
+/**
+ * Project, tab and the open task live in the location hash. A browser refresh
+ * then puts you back exactly where you were instead of dumping you on the
+ * overview with the task drawer closed, and back/forward work.
+ */
+var applyingHash = false;
+
+function syncHash() {
+  if (applyingHash) return;
+  var parts = [];
+  if (S.projectId) parts.push('p=' + S.projectId);
+  if (S.tab && S.tab !== 'overview') parts.push('tab=' + S.tab);
+  if (S.task) parts.push('task=' + S.task.id);
+  var next = parts.length ? '#' + parts.join('&') : '#';
+  if (next !== location.hash) history.replaceState(null, '', next);
+}
+
+function readHash() {
+  var out = {};
+  var raw = location.hash.replace(/^#/, '');
+  if (!raw) return out;
+  raw.split('&').forEach(function (pair) {
+    var i = pair.indexOf('=');
+    if (i < 0) return;
+    var k = pair.slice(0, i), v = pair.slice(i + 1);
+    if (k === 'p' || k === 'task') { var n = Number(v); if (n > 0) out[k] = n; }
+    if (k === 'tab' && TABS.some(function (t) { return t[0] === v; })) out.tab = v;
+  });
+  return out;
+}
+
 function renderTabs() {
   el('tabs').innerHTML = TABS.map(function (t) {
     return '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'active' : '') + '">' + t[1] + '</button>';
@@ -447,6 +480,7 @@ function refresh() {
 
 function render() {
   renderTabs();
+  syncHash();
   el('roBadge').hidden = !S.readOnly;
   if (S.query) return renderSearch();
   var fns = { overview: viewOverview, board: viewBoard, epics: viewEpics,
@@ -680,11 +714,13 @@ function openTask(id) {
   return get('/api/tasks/' + id + (S.showDeleted ? '?include_deleted=1' : '')).then(function (t) {
     S.task = t;
     drawTask();
+    syncHash();
   }).catch(oops);
 }
 
 function closeDrawer() {
   S.task = null;
+  syncHash();
   var d = document.querySelector('.drawer');
   var b = document.querySelector('.drawer-backdrop');
   if (d) d.remove();
@@ -710,6 +746,7 @@ function drawTask() {
   d.className = 'drawer';
 
   var h = '<div class="row"><span class="grow"></span>' +
+    '<button class="btn" id="refreshTask" title="Re-read this task from the database">⟳ Refresh</button>' +
     (ed ? '<button class="btn" id="editTask">Edit task</button>' : '') +
     '<button class="btn" id="closeDrawer">Close ✕</button></div>';
   h += '<h2 style="margin:6px 0 8px;font-size:18px">' + esc(t.title) + '</h2>';
@@ -951,6 +988,12 @@ document.addEventListener('click', function (ev) {
   if (tabBtn) { S.tab = tabBtn.dataset.tab; S.query = ''; el('q').value = ''; render(); return; }
 
   if (target.id === 'closeDrawer') return closeDrawer();
+  if (target.id === 'refreshTask') {
+    var btn = target;
+    btn.disabled = true;
+    btn.textContent = '⟳ …';
+    return refresh().then(function () { toast('Refreshed'); }).catch(oops);
+  }
   if (target.id === 'clearSearch') { S.query = ''; el('q').value = ''; render(); return; }
   if (target.id === 'reload') { toast('Reloaded'); refresh(); return; }
   if (target.id === 'expandAll') { S.overview.epics.forEach(function (e) { S.epicOpen[e.id] = true; }); render(); return; }
@@ -1177,16 +1220,50 @@ document.addEventListener('drop', function (ev) {
 
 /* ---------- boot ---------- */
 
+// Back and forward move between tasks and tabs rather than leaving the page.
+// Registered before boot so it survives a failed first fetch.
+window.addEventListener('hashchange', function () {
+  var want = readHash();
+  var openId = S.task ? S.task.id : null;
+  if (want.task === openId && (want.tab || 'overview') === S.tab &&
+      (!want.p || want.p === S.projectId)) return;
+
+  applyingHash = true;
+  try {
+    if (want.p && want.p !== S.projectId && S.projects.some(function (p) { return p.id === want.p; })) {
+      S.projectId = want.p;
+      el('projectSel').value = String(want.p);
+      S.epicOpen = {};
+      loadProject();
+    }
+    S.tab = want.tab || 'overview';
+    render();
+    if (want.task) openTask(want.task);
+    else if (S.task) closeDrawer();
+  } finally {
+    applyingHash = false;
+  }
+});
+
 get('/api/projects').then(function (r) {
   S.projects = r.projects;
   S.readOnly = !!r.read_only;
   el('dbpath').textContent = r.db_path;
   el('roBadge').hidden = !S.readOnly;
   if (S.readOnly) el('newProject').hidden = true;
-  if (S.projects.length) S.projectId = S.projects[0].id;
+
+  var want = readHash();
+  var known = S.projects.some(function (p) { return p.id === want.p; });
+  S.projectId = known ? want.p : (S.projects.length ? S.projects[0].id : null);
+  if (want.tab) S.tab = want.tab;
+
   renderProjects();
-  loadProject();
+  loadProject().then(function () {
+    // Reopen whatever task the URL names, so a browser refresh keeps your place.
+    if (want.task) return openTask(want.task);
+  });
 }).catch(fail);
+
 </script>
 </body>
 </html>`;
