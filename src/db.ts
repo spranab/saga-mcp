@@ -31,6 +31,7 @@ export function getDb(): Database.Database {
   try { db.exec('ALTER TABLE comments ADD COLUMN deleted_by TEXT'); } catch { /* column already exists */ }
   try { db.exec('ALTER TABLE comments ADD COLUMN delete_reason TEXT'); } catch { /* column already exists */ }
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_comments_task_live ON comments(task_id, is_deleted)'); } catch { /* index already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN description_locked INTEGER NOT NULL DEFAULT 0'); } catch { /* column already exists */ }
 
   return db;
 }

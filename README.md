@@ -12,7 +12,7 @@ lived in the context window, or in a `TODO.md` nobody updates.
 
 saga-mcp gives the agent a real tracker instead: a SQLite file in your project
 holding projects, epics, tasks, subtasks, dependencies, comments, notes and
-decisions, exposed as 33 MCP tools. The agent writes to it as it works and
+decisions, exposed as 35 MCP tools. The agent writes to it as it works and
 reads the dashboard when it comes back. No accounts, no external service, no
 network calls — the database is a file you own.
 
@@ -66,6 +66,8 @@ recent activity, notes.
 
 - **Full hierarchy**: Projects > Epics > Tasks > Subtasks
 - **Task dependencies**: Express sequencing with auto-block/unblock when deps are met
+- **Description lock**: Stop agents rewriting a task's spec when they meant to leave a comment
+- **Subtask ordering & dependencies**: Explicit order, and checklist items that wait on siblings
 - **Comments**: Threaded discussions on tasks — leave breadcrumbs across sessions, with reversible soft-delete
 - **Web UI**: `saga-web` serves a local dashboard for browsing *and* editing the same database
 - **Templates**: Reusable task sets with `{variable}` substitution
@@ -74,7 +76,7 @@ recent activity, notes.
 - **Activity log**: Every mutation is automatically tracked with old/new values
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **33 focused tools**: With MCP safety annotations on every tool
+- **35 focused tools**: With MCP safety annotations on every tool
 - **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
 - **Auto time tracking**: Hours computed automatically from activity log
@@ -188,6 +190,7 @@ import/export, session diffs and the rest discoverable.
 | `task_list` | List/filter tasks with dependency info | `readOnly: true` |
 | `task_get` | Get task with subtasks, notes, comments, and dependencies | `readOnly: true` |
 | `task_update` | Update task (auto-logs, auto-blocks/unblocks) | `readOnly: false`, `idempotent: true` |
+| `task_lock_description` | Lock/unlock a description so agents can't rewrite it | `readOnly: false`, `idempotent: true` |
 | `task_batch_update` | Update multiple tasks at once | `readOnly: false`, `idempotent: true` |
 
 ### Subtasks
@@ -195,7 +198,8 @@ import/export, session diffs and the rest discoverable.
 | Tool | Description | Annotations |
 |------|-------------|-------------|
 | `subtask_create` | Create subtask(s) — supports batch | `readOnly: false` |
-| `subtask_update` | Update subtask title/status | `readOnly: false`, `idempotent: true` |
+| `subtask_update` | Update title/status/position; `depends_on` and `blocks` set ordering | `readOnly: false`, `idempotent: true` |
+| `subtask_reorder` | Set the order of a task's subtasks in one call | `readOnly: false`, `idempotent: true` |
 | `subtask_delete` | Delete subtask(s) — supports batch | `destructive: true`, `idempotent: true` |
 
 ### Comments
@@ -356,6 +360,41 @@ project was a guess, rather than silently reporting on the wrong repo.
 The web UI is unaffected either way: its project switcher lists every project in the database, and
 each tab is scoped to the selected one.
 
+## Keeping agents on the rails
+
+Two guards for the ways an agent goes wrong on a long task.
+
+**A locked description.** Agents sometimes rewrite a task's description to record progress, when
+they meant to add a comment — and the spec you agreed on is gone. Lock it and `task_update` refuses:
+
+```
+task_lock_description({ id: 12 })
+task_update({ id: 12, description: "..." })
+  -> Task 12's description is locked and was not changed. Record progress with
+     comment_add instead, or unlock it in the web UI if the description is genuinely wrong.
+```
+
+Everything else about the task stays editable — the point is to protect the spec, not freeze the
+task. The lock cannot be cleared as a side effect of an ordinary `task_update`; it takes a
+deliberate `task_lock_description` call or the lock toggle in the web UI, and both are logged.
+
+This is a guard against confusion, not an adversarial control: an agent that is told to unlock
+still can. It turns a silent overwrite into a visible, reversible decision.
+
+**Subtask order and dependencies.** New subtasks are appended in order rather than all landing at
+position 0, `subtask_reorder` sets the order in one call (or drag them in the UI), and a subtask
+can wait on its siblings:
+
+```
+subtask_update({ id: 8, depends_on: [5, 6] })    # 8 waits for 5 and 6
+subtask_update({ id: 4, blocks: [5, 6, 7, 8] })  # a bug that holds up the rest
+```
+
+Reads then carry `depends_on` and `blocked`, and the UI marks blocked items. Dependencies stay
+within one task — a checklist item waiting on something under a *different* task is a task-level
+dependency, and `task_update depends_on` already models that. Cycles are refused with the loop
+spelled out.
+
 ## Web UI
 
 Everything above is agent-facing. `saga-web` puts the same database in a browser — for the times
@@ -385,7 +424,7 @@ What you get:
 - **Board** — kanban across the five task statuses; drag a card to change its status
 - **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an agent just wrote
 - **Notes** and **Activity** — decisions and the complete change history
-- **Task drawer** — edit any field, tick subtasks, comment, remove or restore a comment
+- **Task drawer** — edit any field, tick subtasks, comment, remove or restore a comment, lock the description, drag subtasks into order, and set which subtasks wait on which
 - **Project switcher** — every project in the database, so one central `.tracker.db` covers all your repos; every tab, including Activity, is scoped to the selected project
 - **Shareable, refreshable URLs** — the open project, tab and task live in the address bar, so a browser refresh puts you back where you were and back/forward move between tasks. A ⟳ button in the task drawer re-reads that task without a page reload, for picking up what an agent just wrote
 

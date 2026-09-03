@@ -6,6 +6,7 @@ import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
 import { slimListRow, LIST_DESCRIPTION_CHARS } from '../helpers/slim.js';
 import { resolveProjectId, taskScopeClause, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { resolveBranch } from '../helpers/git.js';
+import { withDependencies } from './subtasks.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -54,7 +55,7 @@ export const definitions: Tool[] = [
     name: 'task_list',
     description:
       'List tasks with optional filters. If no epic_id given, lists across ALL epics. Includes subtask counts and dependency info. ' +
-      'Rows are compact: null fields and metadata are omitted, and descriptions are truncated to ' + LIST_DESCRIPTION_CHARS + ' characters (trailing ellipsis) — call task_get for a full task. ' +
+      'Rows are compact: nulls and metadata omitted, descriptions cut to ' + LIST_DESCRIPTION_CHARS + ' chars — use task_get for the full task. ' +
       'Pass branch="current" to restrict to tasks whose epic is scoped to the active git branch.',
     annotations: { title: 'List Tasks', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
@@ -78,6 +79,20 @@ export const definitions: Tool[] = [
         },
         limit: { type: 'integer', default: 50, description: 'Max results' },
       },
+    },
+  },
+  {
+    name: 'task_lock_description',
+    description:
+      "Lock or unlock a task's description. While locked, task_update refuses to change it — a guard against rewriting the spec when you meant to add a comment. Everything else stays editable. Unlock only when a human asks, never to get past the refusal.",
+    annotations: { title: 'Lock Task Description', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Task ID' },
+        locked: { type: 'boolean', default: true, description: 'true to lock, false to unlock' },
+      },
+      required: ['id'],
     },
   },
   {
@@ -318,9 +333,11 @@ function handleTaskGet(args: Record<string, unknown>) {
 
   if (!task) throw new Error(`Task ${id} not found`);
 
-  const subtasks = db
-    .prepare('SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at')
-    .all(id);
+  const subtasks = withDependencies(
+    db,
+    db.prepare('SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at')
+      .all(id) as Array<Record<string, unknown>>
+  );
 
   const notes = db
     .prepare(
@@ -361,6 +378,18 @@ function handleTaskUpdate(args: Record<string, unknown>) {
 
   const oldRow = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   if (!oldRow) throw new Error(`Task ${id} not found`);
+
+  // #19: the lock exists because agents rewrite a task's description when they
+  // meant to leave a comment. It guards that one field; everything else on the
+  // task stays editable, and the lock itself is not settable here — use
+  // task_lock_description, which makes unlocking a deliberate, logged act.
+  if (oldRow.description_locked && args.description !== undefined) {
+    throw new Error(
+      `Task ${id}'s description is locked and was not changed. ` +
+        'Record progress with comment_add instead, or unlock it in the web UI ' +
+        '(or with task_lock_description) if the description itself is genuinely wrong.'
+    );
+  }
 
   const update = buildUpdate('tasks', id, args, [
     'title', 'description', 'status', 'priority', 'assigned_to',
@@ -424,8 +453,39 @@ function handleTaskUpdate(args: Record<string, unknown>) {
   return newRow;
 }
 
+function handleTaskLockDescription(args: Record<string, unknown>) {
+  const db = getDb();
+  const id = args.id as number;
+  const locked = args.locked === undefined ? true : Boolean(args.locked);
+
+  const task = db.prepare('SELECT id, title, description_locked FROM tasks WHERE id = ?').get(id) as
+    | { id: number; title: string; description_locked: number }
+    | undefined;
+  if (!task) throw new Error(`Task ${id} not found`);
+
+  if (Boolean(task.description_locked) === locked) {
+    return { message: `Task ${id}'s description is already ${locked ? 'locked' : 'unlocked'}.`, task };
+  }
+
+  const row = db
+    .prepare("UPDATE tasks SET description_locked = ?, updated_at = datetime('now') WHERE id = ? RETURNING *")
+    .get(locked ? 1 : 0, id) as Record<string, unknown>;
+
+  logActivity(db, 'task', id, 'updated', 'description_locked',
+    String(task.description_locked), locked ? '1' : '0',
+    `Task '${task.title}' description ${locked ? 'locked' : 'unlocked'}`);
+
+  return {
+    message: locked
+      ? `Task ${id}'s description is locked. task_update will refuse to change it; use comment_add to record progress.`
+      : `Task ${id}'s description is unlocked.`,
+    task: row,
+  };
+}
+
 export const handlers: Record<string, ToolHandler> = {
   task_create: handleTaskCreate,
+  task_lock_description: handleTaskLockDescription,
   task_list: handleTaskList,
   task_get: handleTaskGet,
   task_update: handleTaskUpdate,

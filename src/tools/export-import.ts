@@ -81,6 +81,7 @@ function handleExport(args: Record<string, unknown>) {
         actual_hours: task.actual_hours,
         due_date: task.due_date,
         source_ref: task.source_ref,
+        description_locked: task.description_locked,
         tags: task.tags,
         metadata: task.metadata,
         depends_on: deps.map((d) => d.depends_on_task_id),
