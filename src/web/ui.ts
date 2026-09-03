@@ -211,6 +211,14 @@ pre.body {
 .act { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .act:last-child { border-bottom: none; }
 .act time { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.checklist { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.checkrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
+.sub.blocked > .grow { color: var(--muted); }
+.sub .handle { cursor: grab; color: var(--muted); user-select: none; font-size: 12px; }
+.sub.dragging { opacity: .4; }
+.sub.dropinto { border-top: 2px solid var(--accent); }
+.dep { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.lockbtn.on { color: var(--high); border-color: var(--high); }
 .toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
@@ -339,6 +347,15 @@ function modal(title, fields, submitLabel, onSubmit) {
              '>' + esc(txt) + '</option>';
       });
       h += '</select>';
+    } else if (f.type === 'checkboxes') {
+      h += '<div id="f_' + f.key + '" class="checklist">';
+      (f.options || []).forEach(function (o) {
+        var on = (f.value || []).indexOf(o.value) >= 0;
+        h += '<label class="checkrow"><input type="checkbox" value="' + esc(o.value) + '"' +
+             (on ? ' checked' : '') + '> <span>' + esc(o.text) + '</span></label>';
+      });
+      if (!(f.options || []).length) h += '<div class="empty">No other subtasks yet.</div>';
+      h += '</div>';
     } else if (f.type === 'tags') {
       h += '<input id="f_' + f.key + '" name="' + f.key + '" value="' + esc(v) +
            '" placeholder="comma, separated">';
@@ -368,6 +385,15 @@ function modal(title, fields, submitLabel, onSubmit) {
     var bad = null;
     fields.forEach(function (f) {
       var node = m.querySelector('#f_' + f.key);
+      if (f.type === 'checkboxes') {
+        var picked = [];
+        Array.prototype.forEach.call(node.querySelectorAll('input:checked'), function (cb) {
+          picked.push(Number(cb.value));
+        });
+        values[f.key] = picked;
+        if (picked.join(',') !== (f.value || []).join(',')) changed[f.key] = picked;
+        return;
+      }
       var raw = node.value;
       var out;
       if (f.type === 'tags') {
@@ -778,18 +804,37 @@ function drawTask() {
   }).join('') + '</dl>';
   if (tagPills(t.tags)) h += '<div style="margin-top:10px">' + tagPills(t.tags) + '</div>';
 
-  h += '<h3>Description</h3>' +
+  var locked = !!t.description_locked;
+  h += '<h3>Description' +
+    (ed ? '<button class="btn lockbtn' + (locked ? ' on' : '') + '" id="toggleLock" title="' +
+          (locked ? 'Unlock so task_update can change the description again'
+                  : 'Lock so agents cannot rewrite the description') + '">' +
+          (locked ? '🔒 Locked' : '🔓 Unlocked') + '</button>' : '') +
+    '</h3>' +
+    (locked ? '<div class="empty">Agents cannot rewrite this description while it is locked — ' +
+              'they are told to comment instead.</div>' : '') +
     (t.description ? '<pre class="body">' + esc(t.description) + '</pre>'
                    : '<div class="empty">No description.</div>');
 
   h += '<h3>Subtasks <span class="muted">(' + t.subtasks.length + ')</span></h3>';
   h += t.subtasks.length ? t.subtasks.map(function (s) {
-    return '<div class="sub">' +
+    var deps = s.depends_on || [];
+    var blocked = !!s.blocked;
+    return '<div class="sub' + (blocked ? ' blocked' : '') + '" data-subtask-row="' + s.id + '"' +
+      (ed ? ' draggable="true"' : '') + '>' +
+      (ed ? '<span class="handle" title="Drag to reorder">⠿</span>' : '') +
       (ed ? '<input type="checkbox" data-subtask-toggle="' + s.id + '"' +
-            (s.status === 'done' ? ' checked' : '') + '>'
+            (s.status === 'done' ? ' checked' : '') +
+            (blocked ? ' title="Blocked until its prerequisites are done"' : '') + '>'
           : '<span class="dot st-' + esc(s.status) + '"></span>') +
-      '<span class="grow' + (s.status === 'done' ? ' muted strike' : '') + '">' + esc(s.title) + '</span>' +
-      (ed ? '<button class="link" data-subtask-rename="' + s.id + '">rename</button>' +
+      '<span class="grow' + (s.status === 'done' ? ' muted strike' : '') + '">' +
+        (blocked ? '⛔ ' : '') + esc(s.title) + '</span>' +
+      (deps.length
+        ? '<span class="dep" title="' + esc(deps.map(function (d) { return d.title; }).join(', ')) + '">after ' +
+          deps.map(function (d) { return '#' + d.id; }).join(', ') + '</span>'
+        : '') +
+      (ed ? '<button class="link" data-subtask-deps="' + s.id + '">deps</button>' +
+            '<button class="link" data-subtask-rename="' + s.id + '">rename</button>' +
             '<button class="link" data-subtask-del="' + s.id + '">remove</button>' : '') +
       '</div>';
   }).join('') : '<div class="empty">None.</div>';
@@ -861,9 +906,15 @@ function drawTask() {
 
 function editTaskModal() {
   var t = S.task;
-  modal('Edit task #' + t.id, [
+  var fields = [
     { key: 'title', label: 'Title', type: 'text', value: t.title, required: true },
-    { key: 'description', label: 'Description', type: 'textarea', value: t.description },
+  ];
+  // A locked description is simply absent from the form — offering a field that
+  // the server will refuse is worse than not offering it.
+  if (!t.description_locked) {
+    fields.push({ key: 'description', label: 'Description', type: 'textarea', value: t.description });
+  }
+  modal('Edit task #' + t.id + (t.description_locked ? '  ·  description locked' : ''), fields.concat([
     { key: 'status', label: 'Status', type: 'select', options: TASK_STATUS, value: t.status },
     { key: 'priority', label: 'Priority', type: 'select', options: PRIORITY, value: t.priority },
     { key: 'assigned_to', label: 'Assigned to', type: 'text', value: t.assigned_to },
@@ -871,7 +922,7 @@ function editTaskModal() {
     { key: 'estimated_hours', label: 'Estimated hours', type: 'number', value: t.estimated_hours },
     { key: 'actual_hours', label: 'Actual hours', type: 'number', value: t.actual_hours },
     { key: 'tags', label: 'Tags', type: 'tags', value: parseTags(t.tags).join(', ') }
-  ], 'Save', function (values, changed) {
+  ]), 'Save', function (values, changed) {
     if (!Object.keys(changed).length) return Promise.resolve();
     changed.id = t.id;
     return act('task_update', changed).then(function () {
@@ -1032,6 +1083,28 @@ document.addEventListener('click', function (ev) {
       .then(function () { toast('Note deleted'); viewNotes(); }).catch(oops);
   }
 
+  if (target.id === 'toggleLock') {
+    return act('task_lock_description', { id: S.task.id, locked: !S.task.description_locked })
+      .then(function (r) { toast(r.message); return refresh(); }).catch(oops);
+  }
+
+  var depsBtn = target.closest('[data-subtask-deps]');
+  if (depsBtn) {
+    var sid = Number(depsBtn.dataset.subtaskDeps);
+    var self = S.task.subtasks.filter(function (x) { return x.id === sid; })[0];
+    var current = (self.depends_on || []).map(function (d) { return d.id; });
+    var siblings = S.task.subtasks.filter(function (x) { return x.id !== sid; }).map(function (x) {
+      return { value: x.id, text: '#' + x.id + '  ' + x.title + (x.status === 'done' ? '  ✓' : '') };
+    });
+    return modal('“' + self.title + '” waits on…', [
+      { key: 'depends_on', label: 'Prerequisite subtasks — it stays blocked until these are done',
+        type: 'checkboxes', options: siblings, value: current }
+    ], 'Save', function (values) {
+      return act('subtask_update', { id: sid, depends_on: values.depends_on })
+        .then(function () { toast('Dependencies updated'); return refresh(); });
+    });
+  }
+
   var renameSub = target.closest('[data-subtask-rename]');
   if (renameSub) {
     var sid = Number(renameSub.dataset.subtaskRename);
@@ -1177,6 +1250,54 @@ document.addEventListener('input', function (ev) {
   clearTimeout(qTimer);
   var v = ev.target.value.trim();
   qTimer = setTimeout(function () { S.query = v.length >= 2 ? v : ''; render(); }, 220);
+});
+
+/* drag a subtask onto another to reorder the checklist */
+var dragSub = null;
+document.addEventListener('dragstart', function (ev) {
+  var row = ev.target.closest ? ev.target.closest('.sub[data-subtask-row]') : null;
+  if (!row) return;
+  dragSub = Number(row.dataset.subtaskRow);
+  row.classList.add('dragging');
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', String(dragSub));
+  ev.stopPropagation();
+});
+document.addEventListener('dragover', function (ev) {
+  if (dragSub === null) return;
+  var row = ev.target.closest ? ev.target.closest('.sub[data-subtask-row]') : null;
+  if (!row) return;
+  ev.preventDefault();
+  row.classList.add('dropinto');
+});
+document.addEventListener('dragleave', function (ev) {
+  var row = ev.target.closest ? ev.target.closest('.sub[data-subtask-row]') : null;
+  if (row) row.classList.remove('dropinto');
+});
+document.addEventListener('drop', function (ev) {
+  if (dragSub === null) return;
+  var row = ev.target.closest ? ev.target.closest('.sub[data-subtask-row]') : null;
+  if (!row) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  row.classList.remove('dropinto');
+  var target = Number(row.dataset.subtaskRow);
+  var moved = dragSub;
+  dragSub = null;
+  if (moved === target) return;
+
+  var order = S.task.subtasks.map(function (x) { return x.id; });
+  order.splice(order.indexOf(moved), 1);
+  order.splice(order.indexOf(target), 0, moved);
+  act('subtask_reorder', { task_id: S.task.id, ordered_ids: order })
+    .then(function () { return refresh(); }).catch(oops);
+});
+document.addEventListener('dragend', function () {
+  dragSub = null;
+  Array.prototype.forEach.call(document.querySelectorAll('.sub.dragging, .sub.dropinto'), function (n) {
+    n.classList.remove('dragging');
+    n.classList.remove('dropinto');
+  });
 });
 
 /* drag a board card into another status column */

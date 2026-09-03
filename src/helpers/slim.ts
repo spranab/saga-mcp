@@ -19,6 +19,9 @@ export function truncate(text: string, max = LIST_DESCRIPTION_CHARS): string {
 /** Fields never worth their bytes in a list response. */
 const ALWAYS_DROP = new Set(['metadata']);
 
+/** Flags that only matter when set — carrying the common `0` is pure noise. */
+const DROP_WHEN_ZERO = new Set(['description_locked', 'is_deleted']);
+
 /**
  * Strip a list row down: no nulls, no metadata blob, no empty tags array, and
  * long text fields truncated. Everything removed here is still available from
@@ -33,6 +36,7 @@ export function slimListRow(
   for (const [key, value] of Object.entries(row)) {
     if (value === null || value === undefined) continue;
     if (ALWAYS_DROP.has(key) || drop.includes(key)) continue;
+    if (DROP_WHEN_ZERO.has(key) && (value === 0 || value === false)) continue;
     if (key === 'tags' && (value === '[]' || value === '')) continue;
     if (truncateFields.includes(key) && typeof value === 'string') {
       out[key] = truncate(value);

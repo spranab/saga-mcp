@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
   PRIMARY KEY (task_id, depends_on_task_id)
 );
 
+-- Subtask dependencies (junction table, same shape as task_dependencies)
+
+CREATE TABLE IF NOT EXISTS subtask_dependencies (
+  subtask_id            INTEGER NOT NULL REFERENCES subtasks(id) ON DELETE CASCADE,
+  depends_on_subtask_id INTEGER NOT NULL REFERENCES subtasks(id) ON DELETE CASCADE,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (subtask_id, depends_on_subtask_id)
+);
+
 -- Comments (threaded discussions on tasks)
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -159,5 +168,6 @@ CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
 
 CREATE INDEX IF NOT EXISTS idx_task_deps_depends ON task_dependencies(depends_on_task_id);
+CREATE INDEX IF NOT EXISTS idx_subtask_deps_depends ON subtask_dependencies(depends_on_subtask_id);
 CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 `;

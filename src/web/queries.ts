@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { activityScopeClause, repeatId } from '../helpers/project-scope.js';
+import { withDependencies } from '../tools/subtasks.js';
 
 /**
  * Read-only queries backing the web viewer. Every statement here is a SELECT —
@@ -125,9 +126,11 @@ export function getTask(db: Database.Database, taskId: number, includeDeleted: b
     .get(taskId);
   if (!task) return null;
 
-  const subtasks = db
-    .prepare('SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at')
-    .all(taskId);
+  const subtasks = withDependencies(
+    db,
+    db.prepare('SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at')
+      .all(taskId) as Array<Record<string, unknown>>
+  );
 
   const comments = db
     .prepare(

@@ -9,7 +9,7 @@ export const definitions: Tool[] = [
   {
     name: 'tracker_search',
     description:
-      'Search across ALL entities (projects, epics, tasks, notes) by keyword. Returns categorized results. Pass branch="current" to restrict epic/task matches to the active git branch (projects and notes are not branch-scoped).',
+      'Search projects, epics, tasks and notes by keyword. Returns categorized previews — use task_get or note_list for full text.',
     annotations: { title: 'Global Search', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
