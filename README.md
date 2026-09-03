@@ -386,6 +386,7 @@ What you get:
 - **Notes** and **Activity** — decisions and the complete change history
 - **Task drawer** — edit any field, tick subtasks, comment, remove or restore a comment
 - **Project switcher** — every project in the database, so one central `.tracker.db` covers all your repos; every tab, including Activity, is scoped to the selected project
+- **Shareable, refreshable URLs** — the open project, tab and task live in the address bar, so a browser refresh puts you back where you were and back/forward move between tasks. A ⟳ button in the task drawer re-reads that task without a page reload, for picking up what an agent just wrote
 
 Writes from the UI call the *same handlers* the MCP tools do, so edits you make by hand are
 validated identically and land in the same activity log as the agent's — an agent calling
