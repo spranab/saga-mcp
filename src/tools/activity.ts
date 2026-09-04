@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { resolveProjectId, activityScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { slimList } from '../helpers/slim.js';
+import { asIdList } from '../helpers/coerce.js';
 import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { reevaluateDownstream } from './tasks.js';
@@ -163,7 +164,7 @@ function handleSessionDiff(args: Record<string, unknown>) {
 
 function handleTaskBatchUpdate(args: Record<string, unknown>) {
   const db = getDb();
-  const ids = args.ids as number[];
+  const ids = asIdList(args.ids);
   const status = args.status as string | undefined;
   const priority = args.priority as string | undefined;
   const assignedTo = args.assigned_to as string | undefined;

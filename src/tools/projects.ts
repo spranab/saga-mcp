@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { buildUpdate } from '../helpers/sql-builder.js';
 import { slimList } from '../helpers/slim.js';
+import { tagsColumn } from '../helpers/coerce.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
 import type { ToolHandler } from '../types.js';
 
@@ -70,7 +71,7 @@ function handleProjectCreate(args: Record<string, unknown>) {
   const name = args.name as string;
   const description = (args.description as string) ?? null;
   const status = (args.status as string) ?? 'active';
-  const tags = JSON.stringify((args.tags as string[]) ?? []);
+  const tags = tagsColumn(args.tags);
 
   const project = db
     .prepare(

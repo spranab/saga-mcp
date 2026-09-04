@@ -1,3 +1,5 @@
+import { tagsColumn } from './coerce.js';
+
 const JSON_COLUMNS = new Set(['tags', 'metadata', 'source_ref']);
 
 export function buildUpdate(
@@ -12,7 +14,10 @@ export function buildUpdate(
   for (const col of allowedColumns) {
     if (fields[col] !== undefined) {
       updates.push(`${col} = ?`);
-      params.push(JSON_COLUMNS.has(col) ? JSON.stringify(fields[col]) : fields[col]);
+      // Tags go through the normaliser so an update cannot store the shape a
+      // create would have rejected — addTagFilter runs json_each over this.
+      if (col === 'tags') params.push(tagsColumn(fields[col]));
+      else params.push(JSON_COLUMNS.has(col) ? JSON.stringify(fields[col]) : fields[col]);
     }
   }
 

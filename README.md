@@ -360,6 +360,24 @@ project was a guess, rather than silently reporting on the wrong repo.
 The web UI is unaffected either way: its project switcher lists every project in the database, and
 each tab is scoped to the selected one.
 
+## Forgiving input
+
+Smaller models routinely send an array parameter as a *string* containing JSON.
+Every array-taking tool accepts that, so a batch does not silently collapse into one record:
+
+```
+subtask_create({ task_id: 3, titles: '["Write it","Test it"]' })   # 2 subtasks
+subtask_create({ task_id: 3, titles: "- Write it
+- Test it" })    # 2 subtasks
+task_batch_update({ ids: "[4,5]", status: "done" })               # both tasks
+task_create({ epic_id: 1, title: "x", tags: "billing, urgent" })  # 2 tags
+```
+
+Coercion stops where intent becomes ambiguous. A comma inside a *title* is left alone —
+`"Design the API, then implement it"` is one subtask, not two — while a comma in a tag or an id
+list is a separator, because neither can contain one. Anything genuinely unusable is refused with
+a message naming what arrived and what was wanted, rather than a leaked `ids.map is not a function`.
+
 ## Keeping agents on the rails
 
 Two guards for the ways an agent goes wrong on a long task.

@@ -8,6 +8,7 @@ import { resolveProjectId, taskScopeClause, PROJECT_ID_SCHEMA } from '../helpers
 import { resolveBranch } from '../helpers/git.js';
 import { withDependencies } from './subtasks.js';
 import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
+import { asIdList, tagsColumn } from '../helpers/coerce.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -209,8 +210,8 @@ function handleTaskCreate(args: Record<string, unknown>) {
   const estimatedHours = (args.estimated_hours as number) ?? null;
   const dueDate = (args.due_date as string) ?? null;
   const sourceRef = args.source_ref ? JSON.stringify(args.source_ref) : null;
-  const tags = JSON.stringify((args.tags as string[]) ?? []);
-  const dependsOn = (args.depends_on as number[]) ?? [];
+  const tags = tagsColumn(args.tags);
+  const dependsOn = args.depends_on === undefined ? [] : asIdList(args.depends_on, 'depends_on');
 
   const task = db
     .prepare(
@@ -423,7 +424,7 @@ function handleTaskUpdate(args: Record<string, unknown>) {
 
   // Handle dependency updates
   if (args.depends_on !== undefined) {
-    const dependsOn = args.depends_on as number[];
+    const dependsOn = asIdList(args.depends_on ?? [], 'depends_on');
     setDependencies(db, id, dependsOn);
     logActivity(db, 'task', id, 'updated', 'depends_on', null,
       dependsOn.length > 0 ? dependsOn.join(',') : '(none)',

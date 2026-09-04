@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
+import { tagsColumn } from '../helpers/coerce.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import type { ToolHandler } from '../types.js';
 
@@ -132,7 +133,7 @@ function handleTemplateApply(args: Record<string, unknown>) {
         : null;
       const priority = (taskDef.priority as string) ?? 'medium';
       const estimatedHours = (taskDef.estimated_hours as number) ?? null;
-      const tags = JSON.stringify((taskDef.tags as string[]) ?? []);
+      const tags = tagsColumn(taskDef.tags);
 
       const task = db.prepare(
         `INSERT INTO tasks (epic_id, title, description, priority, estimated_hours, tags)
