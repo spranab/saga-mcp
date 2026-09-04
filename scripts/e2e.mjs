@@ -164,12 +164,39 @@ ok('long descriptions are previewed in lists', listed.some((r) => typeof r.descr
 ok('task_get returns the full description', (await s.call('task_get', { id: t1.id })).description.length === 400);
 ok('the dashboard reports real progress', (await s.call('tracker_dashboard', { project_id: projectId })).stats.total_tasks === 2);
 
+section('getting old work out of the way');
+{
+  const shelf = await s.call('epic_create', { project_id: projectId, name: 'Finished work', status: 'completed' });
+  await s.call('task_create', { epic_id: shelf.id, title: 'old task' });
+  const beforeEpics = (await s.call('epic_list', { project_id: projectId })).length;
+  const arch = await s.call('epic_archive', { id: shelf.id });
+  ok('archiving reports what it hid', /task\(s\) are hidden/.test(arch.message ?? ''), arch.message);
+  ok('the epic drops out of epic_list', (await s.call('epic_list', { project_id: projectId })).length === beforeEpics - 1);
+  ok('include_archived brings it back', (await s.call('epic_list', { project_id: projectId, include_archived: true })).length === beforeEpics);
+  const d = await s.call('tracker_dashboard', { project_id: projectId });
+  ok('the dashboard says what it hid', /archived epic/.test(d.summary));
+  ok('and does not count its tasks', !JSON.stringify(await s.call('task_list', { limit: 50 })).includes('old task'));
+
+  const junk = await s.call('task_create', { epic_id: epic.id, title: 'agent clutter' });
+  const removed = await s.call('task_delete', { id: junk.id, reason: 'should have been a subtask' });
+  ok('a todo task can be removed', !removed.__error && removed.task.is_deleted === 1, removed.__error);
+  ok('it drops out of task_list', !JSON.stringify(await s.call('task_list', { limit: 50 })).includes('agent clutter'));
+  ok('task_restore brings it back', (await s.call('task_restore', { id: junk.id })).task.is_deleted === 0);
+  await s.call('task_update', { id: junk.id, status: 'in_progress' });
+  ok('a started task cannot be removed', /not 'todo'/.test((await s.call('task_delete', { id: junk.id })).__error ?? ''));
+  ok('export still holds the archived epic', JSON.stringify(await s.call('tracker_export', { project_id: projectId })).includes('Finished work'));
+  await s.call('epic_archive', { id: shelf.id, archived: false });
+}
+
 section('one database, several projects');
 const p2 = await s.call('project_create', { name: 'Second project' });
 const e2 = await s.call('epic_create', { project_id: p2.id, name: 'Other' });
 await s.call('task_create', { epic_id: e2.id, title: 'unrelated' });
-ok('unscoped calls still span the file', (await s.call('task_list', { limit: 50 })).length === 3);
-ok('project_id scopes them', (await s.call('task_list', { project_id: projectId, limit: 50 })).length === 2);
+const spanning = await s.call('task_list', { limit: 50 });
+const scopedList = await s.call('task_list', { project_id: projectId, limit: 50 });
+ok('unscoped calls still span the file', spanning.some((t) => t.title === 'unrelated'));
+ok('project_id scopes them', !scopedList.some((t) => t.title === 'unrelated') && scopedList.length === spanning.length - 1,
+   scopedList.length + ' of ' + spanning.length);
 ok('an ambiguous dashboard says it guessed', !!(await s.call('tracker_dashboard', {})).other_projects);
 s.stop();
 
@@ -187,9 +214,11 @@ section('tool surface');
 const full = mcp();
 await full.ready;
 const fullTools = (await full.rpc('tools/list', {})).result.tools;
-ok('every tool is listed by default', fullTools.length === 35, String(fullTools.length));
+ok('every tool is listed by default', fullTools.length === 38, String(fullTools.length));
 ok('every tool carries safety annotations', fullTools.every((t) => typeof t.annotations?.readOnlyHint === 'boolean'));
-ok('the tool list stays inside its context budget', JSON.stringify(fullTools).length < 25000, String(JSON.stringify(fullTools).length));
+ok('the tool list stays inside its context budget', JSON.stringify(fullTools).length < 28000, String(JSON.stringify(fullTools).length));
+ok('and tool descriptions have not crept', JSON.stringify(fullTools).length / fullTools.length < 750,
+   Math.round(JSON.stringify(fullTools).length / fullTools.length) + ' bytes/tool');
 full.stop();
 
 const core = mcp({ SAGA_TOOLS: 'core' });

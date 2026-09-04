@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { buildUpdate } from '../helpers/sql-builder.js';
 import { slimList } from '../helpers/slim.js';
+import { liveEpicClause, wantsHidden, INCLUDE_ARCHIVED_SCHEMA } from '../helpers/visibility.js';
 import { tagsColumn } from '../helpers/coerce.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
 import { resolveBranch } from '../helpers/git.js';
@@ -41,7 +42,7 @@ export const definitions: Tool[] = [
   {
     name: 'epic_list',
     description:
-      'List epics for a project with task counts and completion stats. Filter by status, priority or branch.',
+      'List epics for a project with task counts and completion stats. Filter by status, priority or branch. Archived epics are hidden unless include_archived is set.',
     annotations: { title: 'List Epics', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -49,12 +50,27 @@ export const definitions: Tool[] = [
         project_id: { type: 'integer', description: 'Project ID' },
         status: { type: 'string', enum: ['planned', 'in_progress', 'completed', 'cancelled'] },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+        include_archived: INCLUDE_ARCHIVED_SCHEMA,
         branch: {
           type: 'string',
           description: 'Git branch filter: "current" = active branch, "" = branch-agnostic only, omit = all.',
         },
       },
       required: ['project_id'],
+    },
+  },
+  {
+    name: 'epic_archive',
+    description:
+      "Archive or unarchive an epic. Archived epics and their tasks drop out of listings, the dashboard and search unless include_archived is set. For putting finished work out of sight without cancelling it; nothing is deleted.",
+    annotations: { title: 'Archive Epic', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        archived: { type: 'boolean', default: true, description: 'true to archive, false to bring it back' },
+      },
+      required: ['id'],
     },
   },
   {
@@ -124,6 +140,9 @@ function handleEpicList(args: Record<string, unknown>) {
     whereClauses.push('e.priority = ?');
     params.push(priority);
   }
+  if (!wantsHidden(args.include_archived)) {
+    whereClauses.push(liveEpicClause('e'));
+  }
   if (branchFilter === null) {
     whereClauses.push('e.branch IS NULL');
   } else if (branchFilter !== undefined) {
@@ -174,8 +193,43 @@ function handleEpicUpdate(args: Record<string, unknown>) {
   return newRow;
 }
 
+function handleEpicArchive(args: Record<string, unknown>) {
+  const db = getDb();
+  const id = args.id as number;
+  const archived = args.archived === undefined ? true : Boolean(args.archived);
+
+  const epic = db.prepare('SELECT id, name, archived FROM epics WHERE id = ?').get(id) as
+    | { id: number; name: string; archived: number }
+    | undefined;
+  if (!epic) throw new Error(`Epic ${id} not found`);
+
+  if (Boolean(epic.archived) === archived) {
+    return { message: `Epic ${id} is already ${archived ? 'archived' : 'active'}.`, epic };
+  }
+
+  const row = db
+    .prepare(
+      `UPDATE epics SET archived = ?, archived_at = ${archived ? "datetime('now')" : 'NULL'},
+       updated_at = datetime('now') WHERE id = ? RETURNING *`
+    )
+    .get(archived ? 1 : 0, id) as Record<string, unknown>;
+
+  const taskCount = (db.prepare('SELECT COUNT(*) as n FROM tasks WHERE epic_id = ? AND is_deleted = 0').get(id) as { n: number }).n;
+
+  logActivity(db, 'epic', id, 'updated', 'archived', archived ? '0' : '1', archived ? '1' : '0',
+    `Epic '${epic.name}' ${archived ? 'archived' : 'unarchived'}`);
+
+  return {
+    message: archived
+      ? `Epic ${id} archived. It and its ${taskCount} task(s) are hidden from listings; pass include_archived to see them.`
+      : `Epic ${id} is active again.`,
+    epic: row,
+  };
+}
+
 export const handlers: Record<string, ToolHandler> = {
   epic_create: handleEpicCreate,
+  epic_archive: handleEpicArchive,
   epic_list: handleEpicList,
   epic_update: handleEpicUpdate,
 };

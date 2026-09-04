@@ -64,7 +64,7 @@ after(() => servers.forEach((s) => s.stop()));
 test('tools/list returns every tool by default', async () => {
   const s = await server();
   const res = await s.send('tools/list', {});
-  assert.equal(res.result.tools.length, 35);
+  assert.equal(res.result.tools.length, 38);
 });
 
 test('SAGA_TOOLS=core lists only the core surface, and it is much smaller', async () => {
@@ -93,7 +93,7 @@ test('a tool left off the core list is still callable by name', async () => {
 test('an unrecognised SAGA_TOOLS value warns and falls back to the full list', async () => {
   const s = await server({ SAGA_TOOLS: 'nonsense' });
   const res = await s.send('tools/list', {});
-  assert.equal(res.result.tools.length, 35);
+  assert.equal(res.result.tools.length, 38);
   assert.match(s.stderr(), /Unknown SAGA_TOOLS/);
 });
 

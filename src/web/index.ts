@@ -32,9 +32,12 @@ const WRITE_TOOLS: Record<string, (args: Record<string, unknown>) => unknown> = 
   tracker_init: dashboardHandlers.tracker_init,
   epic_create: epicHandlers.epic_create,
   epic_update: epicHandlers.epic_update,
+  epic_archive: epicHandlers.epic_archive,
   task_create: taskHandlers.task_create,
   task_update: taskHandlers.task_update,
   task_lock_description: taskHandlers.task_lock_description,
+  task_delete: taskHandlers.task_delete,
+  task_restore: taskHandlers.task_restore,
   subtask_create: subtaskHandlers.subtask_create,
   subtask_update: subtaskHandlers.subtask_update,
   subtask_reorder: subtaskHandlers.subtask_reorder,
@@ -287,7 +290,7 @@ async function handle(
   if (req.method === 'GET' && path === '/api/overview') {
     const pid = Number(url.searchParams.get('project_id'));
     if (!pid) return json(res, 400, { error: 'project_id is required' });
-    const data = q.getOverview(db, pid);
+    const data = q.getOverview(db, pid, url.searchParams.get('include_archived') === '1');
     if (!data) return json(res, 404, { error: `Project ${pid} not found` });
     return json(res, 200, data);
   }
@@ -295,7 +298,7 @@ async function handle(
   if (req.method === 'GET' && path === '/api/tasks') {
     const pid = Number(url.searchParams.get('project_id'));
     if (!pid) return json(res, 400, { error: 'project_id is required' });
-    return json(res, 200, { tasks: q.listTasks(db, pid) });
+    return json(res, 200, { tasks: q.listTasks(db, pid, url.searchParams.get('include_archived') === '1') });
   }
 
   const taskMatch = /^\/api\/tasks\/(\d+)$/.exec(path);

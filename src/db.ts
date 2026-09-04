@@ -32,6 +32,16 @@ export function getDb(): Database.Database {
   try { db.exec('ALTER TABLE comments ADD COLUMN delete_reason TEXT'); } catch { /* column already exists */ }
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_comments_task_live ON comments(task_id, is_deleted)'); } catch { /* index already exists */ }
   try { db.exec('ALTER TABLE tasks ADD COLUMN description_locked INTEGER NOT NULL DEFAULT 0'); } catch { /* column already exists */ }
+  // #30: archiving an epic hides it without pretending it was cancelled, and a
+  // todo task can be removed the way a comment can — kept, hidden, restorable.
+  try { db.exec('ALTER TABLE epics ADD COLUMN archived INTEGER NOT NULL DEFAULT 0'); } catch { /* column already exists */ }
+  try { db.exec('ALTER TABLE epics ADD COLUMN archived_at TEXT'); } catch { /* column already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0'); } catch { /* column already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN deleted_at TEXT'); } catch { /* column already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN deleted_by TEXT'); } catch { /* column already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN delete_reason TEXT'); } catch { /* column already exists */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_epics_archived ON epics(project_id, archived)'); } catch { /* index already exists */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_live ON tasks(epic_id, is_deleted)'); } catch { /* index already exists */ }
 
   // #29 left corrupted tags behind: a tags array sent as a JSON *string* was
   // stored verbatim, so the column held a string rather than an array. The UI

@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { resolveBranch } from '../helpers/git.js';
 import { resolveProjectId, noteScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { slimList } from '../helpers/slim.js';
+import { wantsHidden, INCLUDE_ARCHIVED_SCHEMA } from '../helpers/visibility.js';
 import { asTagList } from '../helpers/coerce.js';
 import type { ToolHandler } from '../types.js';
 
@@ -22,6 +23,7 @@ export const definitions: Tool[] = [
           description: 'Limit search to specific entity types (omit for all)',
         },
         project_id: PROJECT_ID_SCHEMA,
+        include_archived: INCLUDE_ARCHIVED_SCHEMA,
         branch: {
           type: 'string',
           description: 'Git branch filter: "current" = active branch, "" = branch-agnostic only, omit = all.',
@@ -57,6 +59,10 @@ function handleSearch(args: Record<string, unknown>) {
     taskBranchParams.push(branchFilter);
   }
 
+  if (!wantsHidden(args.include_archived)) {
+    epicBranchClause += ' AND e.archived = 0';
+    taskBranchClause += ' AND e.archived = 0 AND t.is_deleted = 0';
+  }
   const projectId = resolveProjectId(db, args);
   if (projectId !== undefined) {
     epicBranchClause += ' AND e.project_id = ?';

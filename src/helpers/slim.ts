@@ -20,7 +20,7 @@ export function truncate(text: string, max = LIST_DESCRIPTION_CHARS): string {
 const ALWAYS_DROP = new Set(['metadata']);
 
 /** Flags that only matter when set — carrying the common `0` is pure noise. */
-const DROP_WHEN_ZERO = new Set(['description_locked', 'is_deleted']);
+const DROP_WHEN_ZERO = new Set(['description_locked', 'is_deleted', 'archived']);
 
 /**
  * Strip a list row down: no nulls, no metadata blob, no empty tags array, and

@@ -4,6 +4,7 @@ import { logActivity } from '../helpers/activity-logger.js';
 import { resolveBranch } from '../helpers/git.js';
 import { resolveProjectId, projectCount } from '../helpers/project-scope.js';
 import { slimList } from '../helpers/slim.js';
+import { wantsHidden, INCLUDE_ARCHIVED_SCHEMA } from '../helpers/visibility.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -15,6 +16,7 @@ export const definitions: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
+        include_archived: INCLUDE_ARCHIVED_SCHEMA,
         project_id: {
           type: 'integer',
           description:
@@ -66,6 +68,12 @@ function handleDashboard(args: Record<string, unknown>) {
   if (!project) throw new Error(`Project ${projectId} not found`);
 
   const branchFilter = resolveBranch(args.branch);
+  // Archived epics and removed tasks are excluded from the numbers as well as
+  // the lists — the point is to stop paying for them — but the response says
+  // how much it left out rather than quietly shrinking.
+  const showHidden = wantsHidden(args.include_archived);
+  const archivedSql = showHidden ? '' : ' AND e.archived = 0';
+  const deletedSql = showHidden ? '' : ' AND t.is_deleted = 0';
   let branchSql = '';
   const branchParams: unknown[] = [];
   let branchLabel: string | null = null;
@@ -83,7 +91,7 @@ function handleDashboard(args: Record<string, unknown>) {
     .prepare(
       `
     WITH epic_ids AS (
-      SELECT e.id FROM epics e WHERE e.project_id = ?${branchSql}
+      SELECT e.id FROM epics e WHERE e.project_id = ?${branchSql}${archivedSql}
     ),
     task_stats AS (
       SELECT
@@ -95,7 +103,7 @@ function handleDashboard(args: Record<string, unknown>) {
         SUM(CASE WHEN status = 'review' THEN 1 ELSE 0 END) as tasks_review,
         COALESCE(SUM(estimated_hours), 0) as total_estimated_hours,
         COALESCE(SUM(actual_hours), 0) as total_actual_hours
-      FROM tasks WHERE epic_id IN (SELECT id FROM epic_ids)
+      FROM tasks WHERE epic_id IN (SELECT id FROM epic_ids)${showHidden ? '' : ' AND is_deleted = 0'}
     )
     SELECT
       (SELECT COUNT(*) FROM epic_ids) as total_epics,
@@ -120,8 +128,8 @@ function handleDashboard(args: Record<string, unknown>) {
         THEN ROUND(SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) * 100.0 / COUNT(t.id), 1)
         ELSE 0 END as completion_pct
     FROM epics e
-    LEFT JOIN tasks t ON t.epic_id = e.id
-    WHERE e.project_id = ?${branchSql}
+    LEFT JOIN tasks t ON t.epic_id = e.id${showHidden ? '' : ' AND t.is_deleted = 0'}
+    WHERE e.project_id = ?${branchSql}${archivedSql}
     GROUP BY e.id
     ORDER BY e.sort_order, e.created_at
   `
@@ -135,7 +143,7 @@ function handleDashboard(args: Record<string, unknown>) {
     SELECT t.id, t.title, t.priority, e.name as epic_name
     FROM tasks t
     JOIN epics e ON e.id = t.epic_id
-    WHERE e.project_id = ? AND t.status = 'blocked'${branchSql}
+    WHERE e.project_id = ? AND t.status = 'blocked'${branchSql}${archivedSql}${deletedSql}
     ORDER BY
       CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
   `
@@ -149,7 +157,7 @@ function handleDashboard(args: Record<string, unknown>) {
       `SELECT t.id, t.title, t.due_date, t.priority, e.name as epic_name
        FROM tasks t
        JOIN epics e ON e.id = t.epic_id
-       WHERE e.project_id = ? AND t.due_date < ? AND t.status NOT IN ('done')${branchSql}
+       WHERE e.project_id = ? AND t.due_date < ? AND t.status NOT IN ('done')${branchSql}${archivedSql}${deletedSql}
        ORDER BY t.due_date ASC`
     )
     .all(projectId, today, ...branchParams) as Array<Record<string, unknown>>;
@@ -207,6 +215,21 @@ function handleDashboard(args: Record<string, unknown>) {
 
   // When the project was a guess, tell the caller what else is in the file so it
   // can pass project_id (or the operator can set SAGA_PROJECT) instead.
+  const hiddenCounts = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM epics WHERE project_id = ? AND archived = 1) as archived_epics,
+         (SELECT COUNT(*) FROM tasks t JOIN epics e ON e.id = t.epic_id
+          WHERE e.project_id = ? AND t.is_deleted = 1) as removed_tasks`
+    )
+    .get(projectId, projectId) as { archived_epics: number; removed_tasks: number };
+  if (!showHidden && (hiddenCounts.archived_epics > 0 || hiddenCounts.removed_tasks > 0)) {
+    const parts: string[] = [];
+    if (hiddenCounts.archived_epics > 0) parts.push(`${hiddenCounts.archived_epics} archived epic(s)`);
+    if (hiddenCounts.removed_tasks > 0) parts.push(`${hiddenCounts.removed_tasks} removed task(s)`);
+    summaryParts.push(`Hidden: ${parts.join(' and ')} — pass include_archived to include them.`);
+  }
+
   const otherProjects = guessed
     ? db.prepare('SELECT id, name, status FROM projects WHERE id != ? ORDER BY id').all(projectId)
     : [];
@@ -221,6 +244,8 @@ function handleDashboard(args: Record<string, unknown>) {
 
   return {
     summary,
+    ...(hiddenCounts.archived_epics > 0 ? { archived_epic_count: hiddenCounts.archived_epics } : {}),
+    ...(hiddenCounts.removed_tasks > 0 ? { removed_task_count: hiddenCounts.removed_tasks } : {}),
     ...(otherProjects.length > 0 ? { other_projects: otherProjects } : {}),
     project,
     branch_scope: branchLabel,
