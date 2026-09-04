@@ -8,8 +8,10 @@
  * Run this on a tagged build BEFORE publishing the GitHub release, because
  * publishing the release is what pushes to npm, and npm is forever.
  *
- * Not part of `npm test`: it builds a tarball and installs it, which takes
- * about a minute and needs a working npm.
+ * Deliberately outside test/: `node --test` discovers **\/test\/**\/*.mjs, so
+ * living there meant `npm test` ran it — including in CI, where installing a
+ * fresh tarball rebuilds better-sqlite3 and needs a toolchain the Windows
+ * runners do not have. This is a release gate, not a unit test.
  */
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
