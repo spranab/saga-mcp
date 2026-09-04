@@ -28,13 +28,15 @@ export function listProjects(db: Database.Database) {
     .all();
 }
 
-export function getOverview(db: Database.Database, projectId: number) {
+export function getOverview(db: Database.Database, projectId: number, includeArchived = false) {
+  const archivedSql = includeArchived ? '' : ' AND e.archived = 0';
+  const liveTasks = includeArchived ? '' : ' AND t.is_deleted = 0';
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
   if (!project) return null;
 
   const stats = db
     .prepare(
-      `WITH epic_ids AS (SELECT id FROM epics WHERE project_id = ?),
+      `WITH epic_ids AS (SELECT id FROM epics e WHERE project_id = ?${archivedSql}),
        task_stats AS (
          SELECT
            COUNT(*) as total_tasks,
@@ -45,7 +47,7 @@ export function getOverview(db: Database.Database, projectId: number) {
            SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as tasks_todo,
            COALESCE(SUM(estimated_hours), 0) as total_estimated_hours,
            COALESCE(SUM(actual_hours), 0) as total_actual_hours
-         FROM tasks WHERE epic_id IN (SELECT id FROM epic_ids)
+         FROM tasks t WHERE epic_id IN (SELECT id FROM epic_ids)${liveTasks}
        )
        SELECT (SELECT COUNT(*) FROM epic_ids) as total_epics, ts.*,
          CASE WHEN ts.total_tasks > 0
@@ -65,8 +67,8 @@ export function getOverview(db: Database.Database, projectId: number) {
           THEN ROUND(SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) * 100.0 / COUNT(t.id), 1)
           ELSE 0 END as completion_pct
       FROM epics e
-      LEFT JOIN tasks t ON t.epic_id = e.id
-      WHERE e.project_id = ?
+      LEFT JOIN tasks t ON t.epic_id = e.id${liveTasks}
+      WHERE e.project_id = ?${archivedSql}
       GROUP BY e.id
       ORDER BY e.sort_order, e.created_at`
     )
@@ -77,7 +79,7 @@ export function getOverview(db: Database.Database, projectId: number) {
     .prepare(
       `SELECT t.id, t.title, t.due_date, t.priority, t.status, e.name as epic_name
        FROM tasks t JOIN epics e ON e.id = t.epic_id
-       WHERE e.project_id = ? AND t.due_date IS NOT NULL AND t.due_date < ? AND t.status != 'done'
+       WHERE e.project_id = ? AND t.due_date IS NOT NULL AND t.due_date < ? AND t.status != 'done'${archivedSql}${liveTasks}
        ORDER BY t.due_date ASC`
     )
     .all(projectId, today);
@@ -86,7 +88,7 @@ export function getOverview(db: Database.Database, projectId: number) {
     .prepare(
       `SELECT t.id, t.title, t.priority, t.status, e.name as epic_name
        FROM tasks t JOIN epics e ON e.id = t.epic_id
-       WHERE e.project_id = ? AND t.status = 'blocked'
+       WHERE e.project_id = ? AND t.status = 'blocked'${archivedSql}${liveTasks}
        ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
     )
     .all(projectId);
@@ -99,10 +101,20 @@ export function getOverview(db: Database.Database, projectId: number) {
     )
     .all(projectId);
 
-  return { project, stats, epics, overdue_tasks: overdue, blocked_tasks: blocked, branches };
+  const hidden = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM epics WHERE project_id = ? AND archived = 1) as archived_epics,
+         (SELECT COUNT(*) FROM tasks t JOIN epics e ON e.id = t.epic_id
+          WHERE e.project_id = ? AND t.is_deleted = 1) as removed_tasks`
+    )
+    .get(projectId, projectId);
+
+  return { project, stats, epics, overdue_tasks: overdue, blocked_tasks: blocked, branches, hidden };
 }
 
-export function listTasks(db: Database.Database, projectId: number) {
+export function listTasks(db: Database.Database, projectId: number, includeArchived = false) {
+  const hide = includeArchived ? '' : ' AND e.archived = 0 AND t.is_deleted = 0';
   return db
     .prepare(
       `SELECT t.*, e.name as epic_name, e.branch as epic_branch,
@@ -110,7 +122,7 @@ export function listTasks(db: Database.Database, projectId: number) {
         (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id AND s.status = 'done') as subtask_done,
         (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id AND c.is_deleted = 0) as comment_count
        FROM tasks t JOIN epics e ON e.id = t.epic_id
-       WHERE e.project_id = ?
+       WHERE e.project_id = ?${hide}
        ORDER BY e.sort_order, e.created_at, t.sort_order, t.created_at`
     )
     .all(projectId);
@@ -226,14 +238,14 @@ export function search(db: Database.Database, query: string, limit: number) {
       .prepare(
         `SELECT e.id, e.name, e.description, e.status, e.project_id, p.name as project_name
          FROM epics e JOIN projects p ON p.id = e.project_id
-         WHERE e.name LIKE ? OR e.description LIKE ? LIMIT ?`
+         WHERE (e.name LIKE ? OR e.description LIKE ?) AND e.archived = 0 LIMIT ?`
       )
       .all(pattern, pattern, limit),
     tasks: db
       .prepare(
         `SELECT t.id, t.title, t.status, t.priority, e.name as epic_name, e.project_id
          FROM tasks t JOIN epics e ON e.id = t.epic_id
-         WHERE t.title LIKE ? OR t.description LIKE ? LIMIT ?`
+         WHERE (t.title LIKE ? OR t.description LIKE ?) AND e.archived = 0 AND t.is_deleted = 0 LIMIT ?`
       )
       .all(pattern, pattern, limit),
     notes: db

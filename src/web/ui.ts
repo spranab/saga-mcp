@@ -251,6 +251,13 @@ body.resizing { cursor: ew-resize; user-select: none; }
 }
 .dep.unmet { color: var(--blocked); border-color: var(--blocked); }
 .lockbtn.on { color: var(--high); border-color: var(--high); }
+.card.archived { opacity: .62; border-style: dashed; }
+.tline.removed .ellip { text-decoration: line-through; color: var(--muted); }
+.hiddenbar {
+  display: flex; align-items: center; gap: 8px; margin: 14px 0 8px;
+  font-size: 12px; color: var(--muted);
+}
+.hiddenbar hr { flex: 1; border: none; border-top: 1px dashed var(--border); }
 .toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
@@ -274,7 +281,8 @@ body.resizing { cursor: ew-resize; user-select: none; }
 <main id="view"><p class="muted">Loading…</p></main>
 <script>
 var S = { projects: [], projectId: null, tab: 'overview', overview: null, tasks: [],
-          epicOpen: {}, task: null, showDeleted: false, query: '', readOnly: false };
+          epicOpen: {}, task: null, showDeleted: false, query: '', readOnly: false,
+          showArchived: false, hidden: { archived_epics: 0, removed_tasks: 0 } };
 
 var TABS = [['overview','Overview'],['board','Board'],['epics','Epics'],['notes','Notes'],['activity','Activity']];
 var TASK_STATUS = ['todo', 'in_progress', 'review', 'blocked', 'done'];
@@ -520,11 +528,13 @@ function loadProject(keepDrawer) {
                  : 'Create one with the <code>tracker_init</code> MCP tool.') + '</p>';
     return Promise.resolve();
   }
+  var inc = S.showArchived ? '&include_archived=1' : '';
   return Promise.all([
-    get('/api/overview?project_id=' + S.projectId),
-    get('/api/tasks?project_id=' + S.projectId)
+    get('/api/overview?project_id=' + S.projectId + inc),
+    get('/api/tasks?project_id=' + S.projectId + inc)
   ]).then(function (r) {
     S.overview = r[0];
+    S.hidden = r[0].hidden || { archived_epics: 0, removed_tasks: 0 };
     S.tasks = r[1].tasks;
     render();
     if (keepDrawer && S.task) return openTask(S.task.id);
@@ -567,14 +577,30 @@ function viewOverview() {
     '<div style="margin-top:10px">' + progressBar(s.completion_pct) + '</div>' +
     '</div>';
 
-  h += '<h2>Epics <span class="muted">(' + o.epics.length + ')</span>' +
-       (canEdit() ? ' <button class="btn" id="newEpic">+ Epic</button>' : '') + '</h2>';
+  var hiddenEpics = (o.hidden && o.hidden.archived_epics) || 0;
+  var hiddenTasks = (o.hidden && o.hidden.removed_tasks) || 0;
+  h += '<h2>Epics <span class="muted">(' + o.epics.filter(function (e) { return !e.archived; }).length + ')</span>' +
+       (canEdit() ? ' <button class="btn" id="newEpic">+ Epic</button>' : '') +
+       (hiddenEpics || hiddenTasks
+         ? ' <button class="btn" id="toggleArchived">' + (S.showArchived ? 'Hide' : 'Show') + ' archived' +
+           (hiddenEpics ? ' (' + hiddenEpics + ')' : '') + '</button>'
+         : '') + '</h2>';
   if (!o.epics.length) h += '<p class="empty">No epics yet.</p>';
-  o.epics.forEach(function (e) {
-    h += '<div class="card" data-epic-open="' + e.id + '" style="cursor:pointer">' +
+  var shownEpics = o.epics.slice();
+  var archivedShown = false;
+  shownEpics.forEach(function (e) {
+    // Archived epics sort below a divider rather than mixing in.
+    if (e.archived && !archivedShown) {
+      archivedShown = true;
+      h += '<div class="hiddenbar"><hr>archived<hr></div>';
+    }
+    h += '<div class="card' + (e.archived ? ' archived' : '') + '" data-epic-open="' + e.id + '" style="cursor:pointer">' +
       '<div class="row"><span class="grow ellip"><strong>' + esc(e.name) + '</strong></span>' +
       (e.branch ? '<span class="pill pr-low" title="branch">⎇ ' + esc(e.branch) + '</span> ' : '') +
-      pill('pr', e.priority) + ' ' + pill('st', e.status) + '</div>' +
+      (e.archived ? '<span class="pill pr-low" title="Hidden from listings">archived</span> ' : '') +
+      pill('pr', e.priority) + ' ' + pill('st', e.status) +
+      (canEdit() ? ' <button class="btn" data-archive-epic="' + e.id + '" data-archived="' + (e.archived ? 1 : 0) + '">' +
+        (e.archived ? 'Unarchive' : 'Archive') + '</button>' : '') + '</div>' +
       '<div class="row" style="margin-top:8px"><span class="grow">' + progressBar(e.completion_pct) + '</span>' +
       '<span class="muted" style="font-size:12px">' + (e.done_count || 0) + '/' + (e.task_count || 0) +
       (e.blocked_count ? ' · ' + e.blocked_count + ' blocked' : '') + '</span></div></div>';
@@ -809,9 +835,19 @@ function drawTask() {
   var h = '<div class="drawer-resize" id="drawerResize" title="Drag to resize"></div>' +
     '<div class="row"><span class="grow"></span>' +
     '<button class="btn" id="refreshTask" title="Re-read this task from the database">⟳ Refresh</button>' +
+    (ed && t.is_deleted ? '<button class="btn" id="restoreTask">Restore</button>' : '') +
+    (ed && !t.is_deleted && t.status === 'todo'
+      ? '<button class="btn danger" id="deleteTask" title="Remove this task — kept for the audit trail, restorable">Remove</button>'
+      : '') +
     (ed ? '<button class="btn" id="editTask">Edit task</button>' : '') +
     '<button class="btn" id="closeDrawer">Close ✕</button></div>';
   h += '<h2 style="margin:6px 0 8px;font-size:18px">' + esc(t.title) + '</h2>';
+  if (t.is_deleted) {
+    h += '<div class="empty" style="color:var(--blocked)">This task was removed' +
+      (t.deleted_by ? ' by ' + esc(t.deleted_by) : '') +
+      (t.delete_reason ? ': ' + esc(t.delete_reason) : '') +
+      '. It is hidden from listings until restored.</div>';
+  }
   h += '<div class="row" style="gap:6px;flex-wrap:wrap">';
   if (ed) {
     h += '<select id="quickStatus" title="Status">' + TASK_STATUS.map(function (s) {
@@ -1098,6 +1134,34 @@ document.addEventListener('click', function (ev) {
   if (target.id === 'collapseAll') { S.epicOpen = {}; render(); return; }
   if (target.id === 'newProject') return projectModal(null);
   if (target.id === 'editProject') return projectModal(S.overview.project);
+  if (target.id === 'toggleArchived') {
+    S.showArchived = !S.showArchived;
+    return loadProject();
+  }
+
+  var archBtn = target.closest('[data-archive-epic]');
+  if (archBtn) {
+    var aid = Number(archBtn.dataset.archiveEpic);
+    var isArchived = archBtn.dataset.archived === '1';
+    return act('epic_archive', { id: aid, archived: !isArchived })
+      .then(function (r) { toast(r.message); return refresh(); }).catch(oops);
+  }
+
+  if (target.id === 'deleteTask') {
+    var t = S.task;
+    if (t.status !== 'todo') {
+      return oops(new Error("Only a task still in 'todo' can be removed — this one is '" + label(t.status) + "'."));
+    }
+    var why = prompt('Why is this task being removed? (kept in the audit trail)');
+    if (why === null) return;
+    return act('task_delete', { id: t.id, reason: why || null })
+      .then(function (r) { toast(r.message); closeDrawer(); return refresh(); }).catch(oops);
+  }
+  if (target.id === 'restoreTask') {
+    return act('task_restore', { id: S.task.id })
+      .then(function (r) { toast(r.message); return refresh(); }).catch(oops);
+  }
+
   if (target.id === 'newEpic') return epicModal(null);
   if (target.id === 'newNote') return noteModal(null, null);
   if (target.id === 'editTask') return editTaskModal();

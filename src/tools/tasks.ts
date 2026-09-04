@@ -9,6 +9,7 @@ import { resolveBranch } from '../helpers/git.js';
 import { withDependencies } from './subtasks.js';
 import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import { asIdList, tagsColumn } from '../helpers/coerce.js';
+import { liveTaskClause, wantsHidden, INCLUDE_ARCHIVED_SCHEMA, INCLUDE_DELETED_TASKS_SCHEMA } from '../helpers/visibility.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -56,7 +57,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_list',
     description:
-      'List tasks with optional filters; without epic_id, across all epics. Includes subtask and dependency counts. ' +
+      'List tasks; without epic_id, across all epics. Includes subtask and dependency counts. ' +
       'Rows are compact: nulls and metadata dropped, descriptions cut to ' + LIST_DESCRIPTION_CHARS + ' chars (task_get for full). ' +
       'branch="current" restricts to the active git branch.',
     annotations: { title: 'List Tasks', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -73,6 +74,8 @@ export const definitions: Tool[] = [
           type: 'string',
           description: 'Git branch filter: "current" = active branch, "" = branch-agnostic only, omit = all.',
         },
+        include_archived: INCLUDE_ARCHIVED_SCHEMA,
+        include_deleted: INCLUDE_DELETED_TASKS_SCHEMA,
         sort_by: {
           type: 'string',
           enum: ['priority', 'created', 'due_date', 'status'],
@@ -81,6 +84,31 @@ export const definitions: Tool[] = [
         },
         limit: { type: 'integer', default: 50, description: 'Max results' },
       },
+    },
+  },
+  {
+    name: 'task_delete',
+    description:
+      "Remove a task (soft delete). Only 'todo' tasks — anything further along has history worth keeping. The row is kept and hidden from listings; task_restore brings it back.",
+    annotations: { title: 'Remove Task', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        reason: { type: 'string', description: 'Why it is being removed (kept in the audit trail)' },
+        deleted_by: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'task_restore',
+    description: 'Restore a task removed with task_delete.',
+    annotations: { title: 'Restore Task', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'integer' } },
+      required: ['id'],
     },
   },
   {
@@ -290,6 +318,10 @@ function handleTaskList(args: Record<string, unknown>) {
   if (tag) {
     addTagFilter(whereClauses, params, tag, 't');
   }
+  // #30: a removed task, and a task inside an archived epic, are both noise the
+  // caller is paying for on every listing.
+  if (!wantsHidden(args.include_deleted)) whereClauses.push('t.is_deleted = 0');
+  if (!wantsHidden(args.include_archived)) whereClauses.push('e.archived = 0');
   if (branchFilter === null) {
     whereClauses.push('e.branch IS NULL');
   } else if (branchFilter !== undefined) {
@@ -495,8 +527,79 @@ function handleTaskLockDescription(args: Record<string, unknown>) {
   };
 }
 
+function handleTaskDelete(args: Record<string, unknown>) {
+  const db = getDb();
+  const id = args.id as number;
+  const reason = (args.reason as string) ?? null;
+  const deletedBy = (args.deleted_by as string) ?? null;
+
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  if (!task) throw new Error(`Task ${id} not found`);
+  if (task.is_deleted) return { message: `Task ${id} was already removed.`, task };
+
+  // Restricted to todo on purpose: anything further along has an activity log,
+  // comments and time tracking that removing it would strand.
+  if (task.status !== 'todo') {
+    throw new Error(
+      `Task ${id} is '${task.status}', not 'todo', so it cannot be removed — work that has started has history worth keeping. ` +
+        'Close it by setting status to done, or move it back to todo first if it was created by mistake.'
+    );
+  }
+
+  // Something else waiting on this task would wait forever.
+  const dependents = db
+    .prepare(
+      `SELECT t.id, t.title FROM task_dependencies d
+       JOIN tasks t ON t.id = d.task_id
+       WHERE d.depends_on_task_id = ? AND t.is_deleted = 0`
+    )
+    .all(id) as Array<{ id: number; title: string }>;
+  if (dependents.length > 0) {
+    throw new Error(
+      `Task ${id} cannot be removed — ${dependents.map((d) => `#${d.id} '${d.title}'`).join(', ')} ` +
+        `depend${dependents.length === 1 ? 's' : ''} on it and would stay blocked forever. Clear those dependencies first.`
+    );
+  }
+
+  const row = db
+    .prepare(
+      `UPDATE tasks SET is_deleted = 1, deleted_at = datetime('now'), deleted_by = ?, delete_reason = ?,
+       updated_at = datetime('now') WHERE id = ? RETURNING *`
+    )
+    .get(deletedBy, reason, id) as Record<string, unknown>;
+
+  logActivity(db, 'task', id, 'deleted', 'is_deleted', '0', '1',
+    `Task '${task.title}' removed${deletedBy ? ` by ${deletedBy}` : ''}${reason ? `: ${reason}` : ''}`);
+
+  return {
+    message: `Task ${id} removed. The row is kept — pass include_deleted to task_list to see it, or task_restore to bring it back.`,
+    task: row,
+  };
+}
+
+function handleTaskRestore(args: Record<string, unknown>) {
+  const db = getDb();
+  const id = args.id as number;
+
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  if (!task) throw new Error(`Task ${id} not found`);
+  if (!task.is_deleted) return { message: `Task ${id} is not removed — nothing to restore.`, task };
+
+  const row = db
+    .prepare(
+      `UPDATE tasks SET is_deleted = 0, deleted_at = NULL, deleted_by = NULL, delete_reason = NULL,
+       updated_at = datetime('now') WHERE id = ? RETURNING *`
+    )
+    .get(id) as Record<string, unknown>;
+
+  logActivity(db, 'task', id, 'restored', 'is_deleted', '1', '0', `Task '${task.title}' restored`);
+  return { message: `Task ${id} restored.`, task: row };
+}
+
 export const handlers: Record<string, ToolHandler> = {
   task_create: handleTaskCreate,
+  task_delete: handleTaskDelete,
+  task_restore: handleTaskRestore,
   task_lock_description: handleTaskLockDescription,
   task_list: handleTaskList,
   task_get: handleTaskGet,

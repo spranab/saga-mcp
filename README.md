@@ -12,7 +12,7 @@ lived in the context window, or in a `TODO.md` nobody updates.
 
 saga-mcp gives the agent a real tracker instead: a SQLite file in your project
 holding projects, epics, tasks, subtasks, dependencies, comments, notes and
-decisions, exposed as 35 MCP tools. The agent writes to it as it works and
+decisions, exposed as 38 MCP tools. The agent writes to it as it works and
 reads the dashboard when it comes back. No accounts, no external service, no
 network calls — the database is a file you own.
 
@@ -76,7 +76,7 @@ recent activity, notes.
 - **Activity log**: Every mutation is automatically tracked with old/new values
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **35 focused tools**: With MCP safety annotations on every tool
+- **38 focused tools**: With MCP safety annotations on every tool
 - **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
 - **Auto time tracking**: Hours computed automatically from activity log
@@ -180,6 +180,7 @@ import/export, session diffs and the rest discoverable.
 |------|-------------|-------------|
 | `epic_create` | Create an epic within a project | `readOnly: false` |
 | `epic_list` | List epics with task counts | `readOnly: true` |
+| `epic_archive` | Archive/unarchive an epic, hiding it and its tasks from listings | `readOnly: false`, `idempotent: true` |
 | `epic_update` | Update an epic | `readOnly: false`, `idempotent: true` |
 
 ### Tasks
@@ -191,6 +192,8 @@ import/export, session diffs and the rest discoverable.
 | `task_get` | Get task with subtasks, notes, comments, and dependencies | `readOnly: true` |
 | `task_update` | Update task (auto-logs, auto-blocks/unblocks) | `readOnly: false`, `idempotent: true` |
 | `task_lock_description` | Lock/unlock a description so agents can't rewrite it | `readOnly: false`, `idempotent: true` |
+| `task_delete` | Remove a `todo` task (soft delete, restorable) | `readOnly: false`, `idempotent: true` |
+| `task_restore` | Restore a removed task | `readOnly: false`, `idempotent: true` |
 | `task_batch_update` | Update multiple tasks at once | `readOnly: false`, `idempotent: true` |
 
 ### Subtasks
@@ -378,6 +381,33 @@ Coercion stops where intent becomes ambiguous. A comma inside a *title* is left 
 list is a separator, because neither can contain one. Anything genuinely unusable is refused with
 a message naming what arrived and what was wanted, rather than a leaked `ids.map is not a function`.
 
+## Getting old work out of the way
+
+An epic list that is mostly finished work, and tasks an agent created that should have been
+subtasks, are context you pay for on every call.
+
+```
+epic_archive({ id: 4 })            # the epic and its tasks drop out of listings
+task_delete({ id: 12, reason: "should have been a subtask" })
+```
+
+Archiving is deliberately **not** the `cancelled` status: `cancelled` means "we decided not to do
+this", while most of what you want to archive is *completed*. Archived epics and their tasks
+disappear from `epic_list`, `tracker_dashboard`, `task_list` and `tracker_search` — including the
+statistics, not just the lists — and come back with `include_archived`.
+
+Nothing vanishes silently. The dashboard says what it left out:
+
+```
+Hidden: 2 archived epic(s) and 1 removed task(s) — pass include_archived to include them.
+```
+
+`task_delete` is the same soft delete comments have, restricted to tasks still in `todo`:
+anything further along has comments, time tracking and an activity log that removing it would
+strand, and a task other tasks depend on is refused outright so nothing is left blocked forever.
+The row is kept, `task_restore` brings it back, and `tracker_export` includes archived and removed
+rows because a backup that omits things is not a backup.
+
 ## Keeping agents on the rails
 
 Two guards for the ways an agent goes wrong on a long task.
@@ -457,6 +487,7 @@ What you get:
 - **Board** — kanban across the five task statuses; drag a card to change its status
 - **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an agent just wrote
 - **Notes** and **Activity** — decisions and the complete change history
+- **Archived section** — archived epics collapse below a divider, with a "show archived (N)" toggle
 - **Task drawer** — edit any field, comment, remove or restore a comment, lock the description, drag subtasks into order, and set which subtasks wait on which. Each subtask has one control carrying its whole state (todo / in progress / done, or blocked), and the drawer resizes by dragging its edge
 - **Project switcher** — every project in the database, so one central `.tracker.db` covers all your repos; every tab, including Activity, is scoped to the selected project
 - **Shareable, refreshable URLs** — the open project, tab and task live in the address bar, so a browser refresh puts you back where you were and back/forward move between tasks. A ⟳ button in the task drawer re-reads that task without a page reload, for picking up what an agent just wrote

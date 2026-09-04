@@ -71,7 +71,7 @@ test('slimming measurably shrinks the payload', () => {
 
 test('every tool definition carries safety annotations', async () => {
   const defs = await loadDefinitions();
-  assert.equal(defs.length, 35);
+  assert.equal(defs.length, 38);
   for (const def of defs) {
     assert.ok(def.annotations, `${def.name} is missing annotations`);
     assert.equal(typeof def.annotations.readOnlyHint, 'boolean', `${def.name} readOnlyHint`);
@@ -85,17 +85,29 @@ test('read-only tools are annotated as such', async () => {
   for (const name of ['task_get', 'task_list', 'comment_list', 'tracker_dashboard', 'epic_list']) {
     assert.equal(byName[name].annotations.readOnlyHint, true, `${name} should be readOnly`);
   }
-  for (const name of ['task_create', 'comment_delete', 'comment_restore', 'epic_update', 'task_lock_description', 'subtask_reorder']) {
+  for (const name of ['task_create', 'comment_delete', 'comment_restore', 'epic_update', 'task_lock_description', 'subtask_reorder', 'epic_archive', 'task_delete', 'task_restore']) {
     assert.equal(byName[name].annotations.readOnlyHint, false, `${name} should not be readOnly`);
   }
 });
 
-test('the tool list stays within its context budget', async () => {
+test('tool descriptions do not creep — density is what this guards', async () => {
+  // The thing worth catching is prose bloat, not honest growth: three new tools
+  // legitimately need more bytes than none. Density separates the two.
+  //   v1.7.0  33 tools  756 bytes/tool
+  //   v1.9.0  35 tools  714 bytes/tool
+  // If this fails, a description grew. Trim it rather than raising the number.
+  const defs = await loadDefinitions();
+  const perTool = JSON.stringify(defs).length / defs.length;
+  assert.ok(perTool < 750, `${Math.round(perTool)} bytes per tool, over the 750 ceiling`);
+});
+
+test('the whole surface stays within its context budget', async () => {
+  // An absolute cap as well, so density cannot be gamed by adding many small
+  // tools. Raised 25000 -> 28000 for v1.10.0 after trimming prose first: the
+  // surface went 35 -> 38 tools while density went 714 -> 710 bytes/tool.
   const defs = await loadDefinitions();
   const bytes = JSON.stringify(defs).length;
-  // ~6k tokens. If this fails, a tool description grew — trim it or move the
-  // tool out of the core set rather than raising the ceiling.
-  assert.ok(bytes < 25000, `tool list is ${bytes} bytes, over the 25000 budget`);
+  assert.ok(bytes < 28000, `tool list is ${bytes} bytes, over the 28000 budget`);
 });
 
 test('activity_log drops the row id and null columns', () => {
