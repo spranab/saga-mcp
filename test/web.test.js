@@ -203,6 +203,17 @@ test('a second instance takes the next free port instead of failing', async () =
   }
 });
 
+test('a server that scanned past busy ports still announces itself once', async () => {
+  // server.listen(port, host, cb) registers cb as a 'listening' listener, so
+  // passing it on each retry accumulated one per attempted port: the banner
+  // printed once per attempt and --open opened that many browser tabs.
+  const after = await startWeb();
+  await new Promise((r) => setTimeout(r, 400));
+  const banners = (after.output().match(/saga-web {2}http/g) || []).length;
+  assert.equal(banners, 1, `expected one startup banner, got ${banners}:
+${after.output()}`);
+});
+
 test('an explicit --port is honoured exactly', async () => {
   const pinned = await startWeb(['--port', '4457']);
   assert.equal(new URL(pinned.base).port, '4457');

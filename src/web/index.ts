@@ -199,10 +199,32 @@ function start(opts: Options): void {
   const firstPort = opts.port ?? DEFAULT_PORT;
   const attempts = explicit ? 1 : PORT_SCAN_RANGE;
 
+  // Announce exactly once. server.listen(port, host, cb) registers cb as a
+  // 'listening' listener, so passing it on every retry accumulated one per
+  // attempted port — the banner printed once per attempt, and --open opened
+  // that many browser tabs.
+  const announce = (): void => {
+    const bound = server.address();
+    const actual = typeof bound === 'object' && bound ? bound.port : firstPort;
+    const shown = opts.host === '0.0.0.0' || opts.host === '::' ? 'localhost' : opts.host;
+    const url = `http://${shown}:${actual}`;
+    console.log(`saga-web  ${url}`);
+    console.log(`database  ${opts.dbPath}`);
+    console.log(`mode      ${opts.readOnly ? 'read-only' : 'editable'}`);
+    if (!explicit && actual !== firstPort) {
+      console.log(`note      ${firstPort} was busy — took the next free port.`);
+    }
+    if (opts.host !== '127.0.0.1' && opts.host !== 'localhost') {
+      console.log('warning   bound beyond localhost — this UI has no authentication.');
+    }
+    opts.port = actual;
+    if (opts.open) openBrowser(url);
+  };
+  server.once('listening', announce);
+
   const tryListen = (port: number, remaining: number): void => {
     const onError = (err: NodeJS.ErrnoException) => {
       if (err.code !== 'EADDRINUSE') throw err;
-      server.removeListener('error', onError);
       if (remaining <= 1) {
         console.error(
           explicit
@@ -214,24 +236,7 @@ function start(opts: Options): void {
       tryListen(port + 1, remaining - 1);
     };
     server.once('error', onError);
-    server.listen(port, opts.host, () => {
-      server.removeListener('error', onError);
-      const bound = server.address();
-      const actual = typeof bound === 'object' && bound ? bound.port : port;
-      const shown = opts.host === '0.0.0.0' || opts.host === '::' ? 'localhost' : opts.host;
-      const url = `http://${shown}:${actual}`;
-      console.log(`saga-web  ${url}`);
-      console.log(`database  ${opts.dbPath}`);
-      console.log(`mode      ${opts.readOnly ? 'read-only' : 'editable'}`);
-      if (!explicit && actual !== firstPort) {
-        console.log(`note      ${firstPort} was busy — took the next free port.`);
-      }
-      if (opts.host !== '127.0.0.1' && opts.host !== 'localhost') {
-        console.log('warning   bound beyond localhost — this UI has no authentication.');
-      }
-      opts.port = actual;
-      if (opts.open) openBrowser(url);
-    });
+    server.listen(port, opts.host);
   };
 
   tryListen(firstPort, attempts);
