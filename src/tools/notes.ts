@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { addTagFilter } from '../helpers/sql-builder.js';
+import { tagsColumn } from '../helpers/coerce.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { resolveProjectId, noteScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import type { ToolHandler } from '../types.js';
@@ -91,7 +92,7 @@ function handleNoteSave(args: Record<string, unknown>) {
   const noteType = (args.note_type as string) ?? 'general';
   const relatedEntityType = (args.related_entity_type as string) ?? null;
   const relatedEntityId = (args.related_entity_id as number) ?? null;
-  const tags = JSON.stringify((args.tags as string[]) ?? []);
+  const tags = tagsColumn(args.tags);
 
   if (id !== undefined) {
     // Update existing note

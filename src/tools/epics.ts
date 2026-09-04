@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { buildUpdate } from '../helpers/sql-builder.js';
 import { slimList } from '../helpers/slim.js';
+import { tagsColumn } from '../helpers/coerce.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
 import { resolveBranch } from '../helpers/git.js';
 import type { ToolHandler } from '../types.js';
@@ -88,7 +89,7 @@ function handleEpicCreate(args: Record<string, unknown>) {
   const description = (args.description as string) ?? null;
   const status = (args.status as string) ?? 'planned';
   const priority = (args.priority as string) ?? 'medium';
-  const tags = JSON.stringify((args.tags as string[]) ?? []);
+  const tags = tagsColumn(args.tags);
   const resolvedBranch = resolveBranch(args.branch);
   const branch = resolvedBranch === undefined ? null : resolvedBranch;
 

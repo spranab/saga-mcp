@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
+import { asIdList } from '../helpers/coerce.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import type { ToolHandler } from '../types.js';
 
@@ -271,7 +272,8 @@ function handleImport(args: Record<string, unknown>) {
         logActivity(db, 'task', newTaskId, 'created', null, null, null, `Task '${taskData.title}' imported`);
 
         // Defer dependency creation
-        const originalDeps = (taskData.depends_on as number[]) ?? [];
+        // Import data can be hand-edited, so normalise it like tool input.
+        const originalDeps = taskData.depends_on === undefined ? [] : asIdList(taskData.depends_on, 'depends_on');
         if (originalDeps.length > 0) {
           deferredDeps.push({ newTaskId, originalDeps });
         }

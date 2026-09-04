@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { resolveBranch } from '../helpers/git.js';
 import { resolveProjectId, noteScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { slimList } from '../helpers/slim.js';
+import { asTagList } from '../helpers/coerce.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -35,7 +36,9 @@ export const definitions: Tool[] = [
 function handleSearch(args: Record<string, unknown>) {
   const db = getDb();
   const query = args.query as string;
-  const entityTypes = (args.entity_types as string[] | undefined) ?? ['project', 'epic', 'task', 'note'];
+  const entityTypes = args.entity_types === undefined
+    ? ['project', 'epic', 'task', 'note']
+    : asTagList(args.entity_types, 'entity_types');
   const limit = (args.limit as number) ?? 20;
   const pattern = `%${query}%`;
   const branchFilter = resolveBranch(args.branch);

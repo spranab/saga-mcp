@@ -3,23 +3,23 @@ import type Database from 'better-sqlite3';
 import { getDb } from '../db.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { guardSubtaskStatus, FORCE_SCHEMA } from '../helpers/completion-guard.js';
+import { asTitleList, asIdList } from '../helpers/coerce.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
   {
     name: 'subtask_create',
     description:
-      'Create one or more subtasks (checklist items) for a task. Accepts one title or an array. New subtasks are appended after any that exist.',
+      'Create subtasks (checklist items) for a task. Pass titles as an array — one string per subtask — and each becomes its own record. New subtasks are appended after any that exist.',
     annotations: { title: 'Create Subtask(s)', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
-        task_id: { type: 'integer', description: 'Parent task ID' },
+        task_id: { type: 'integer', description: 'Parent task' },
         titles: {
-          oneOf: [
-            { type: 'string', description: 'Single subtask title' },
-            { type: 'array', items: { type: 'string' }, description: 'Multiple subtask titles' },
-          ],
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Subtask titles, one per array item — e.g. ["Write it", "Test it"]. Always an array, even for a single subtask.',
         },
         depends_on: {
           type: 'array',
@@ -38,7 +38,7 @@ export const definitions: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'integer', description: 'Subtask ID' },
+        id: { type: 'integer' },
         title: { type: 'string' },
         status: { type: 'string', enum: ['todo', 'in_progress', 'done'] },
         sort_order: { type: 'integer' },
@@ -65,7 +65,7 @@ export const definitions: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        task_id: { type: 'integer', description: 'Parent task ID' },
+        task_id: { type: 'integer', description: 'Parent task' },
         ordered_ids: {
           type: 'array',
           items: { type: 'integer' },
@@ -83,10 +83,9 @@ export const definitions: Tool[] = [
       type: 'object',
       properties: {
         ids: {
-          oneOf: [
-            { type: 'integer', description: 'Single subtask ID' },
-            { type: 'array', items: { type: 'integer' }, description: 'Multiple subtask IDs' },
-          ],
+          type: 'array',
+          items: { type: 'integer' },
+          description: 'Subtask IDs to delete — e.g. [4, 7]. Always an array, even for one.',
         },
       },
       required: ['ids'],
@@ -221,9 +220,8 @@ export function withDependencies(
 function handleSubtaskCreate(args: Record<string, unknown>) {
   const db = getDb();
   const taskId = args.task_id as number;
-  const rawTitles = args.titles;
-  const titles = Array.isArray(rawTitles) ? (rawTitles as string[]) : [rawTitles as string];
-  const dependsOn = (args.depends_on as number[]) ?? [];
+  const titles = asTitleList(args.titles);
+  const dependsOn = args.depends_on === undefined ? [] : asIdList(args.depends_on, 'depends_on');
 
   const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
   if (!task) throw new Error(`Task ${taskId} not found`);
@@ -300,7 +298,7 @@ function handleSubtaskUpdate(args: Record<string, unknown>) {
   }
 
   if (args.depends_on !== undefined) {
-    const dependsOn = (args.depends_on as number[]) ?? [];
+    const dependsOn = asIdList(args.depends_on ?? [], 'depends_on');
     setDependencies(db, id, taskId, dependsOn);
     logActivity(db, 'subtask', id, 'updated', 'depends_on', null,
       dependsOn.length > 0 ? dependsOn.join(',') : '(none)',
@@ -309,7 +307,7 @@ function handleSubtaskUpdate(args: Record<string, unknown>) {
 
   // The inverse direction: "this bug holds up those three", without editing each.
   if (args.blocks !== undefined) {
-    const blocks = [...new Set((args.blocks as number[]) ?? [])].filter((x) => x !== id);
+    const blocks = [...new Set(asIdList(args.blocks ?? [], 'blocks'))].filter((x) => x !== id);
     assertSameTask(db, taskId, blocks);
     const existing = db
       .prepare('SELECT subtask_id FROM subtask_dependencies WHERE depends_on_subtask_id = ?')
@@ -343,7 +341,7 @@ function handleSubtaskUpdate(args: Record<string, unknown>) {
 function handleSubtaskReorder(args: Record<string, unknown>) {
   const db = getDb();
   const taskId = args.task_id as number;
-  const orderedIds = (args.ordered_ids as number[]) ?? [];
+  const orderedIds = asIdList(args.ordered_ids ?? [], 'ordered_ids');
 
   const siblings = db
     .prepare('SELECT id FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at')
@@ -375,8 +373,7 @@ function handleSubtaskReorder(args: Record<string, unknown>) {
 
 function handleSubtaskDelete(args: Record<string, unknown>) {
   const db = getDb();
-  const rawIds = args.ids;
-  const ids = Array.isArray(rawIds) ? (rawIds as number[]) : [rawIds as number];
+  const ids = asIdList(args.ids);
 
   const getStmt = db.prepare('SELECT * FROM subtasks WHERE id = ?');
   const delStmt = db.prepare('DELETE FROM subtasks WHERE id = ?');
