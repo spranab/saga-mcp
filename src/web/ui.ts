@@ -179,6 +179,13 @@ pre.body {
   background: var(--panel); border-left: 1px solid var(--border);
   z-index: 31; overflow-y: auto; padding: 18px 20px 60px;
 }
+/* Drag the left edge to widen the drawer; the width is remembered per browser. */
+.drawer-resize {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+  cursor: ew-resize; background: transparent;
+}
+.drawer-resize:hover, .drawer-resize.active { background: var(--accent); opacity: .5; }
+body.resizing { cursor: ew-resize; user-select: none; }
 .drawer h3 {
   margin: 18px 0 8px; font-size: 12px; text-transform: uppercase;
   letter-spacing: .6px; color: var(--muted);
@@ -213,11 +220,34 @@ pre.body {
 .act time { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .checklist { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
 .checkrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
-.sub.blocked > .grow { color: var(--muted); }
 .sub .handle { cursor: grab; color: var(--muted); user-select: none; font-size: 12px; }
+/* One control per subtask carrying its whole state: todo / in progress / done,
+   or blocked. Clicking advances it, so 'in progress' is reachable from the UI. */
+.statebox {
+  width: 18px; height: 18px; flex: none; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--panel-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; cursor: pointer; padding: 0; color: var(--text);
+}
+.statebox:hover { border-color: var(--accent); }
+.statebox.st-in_progress { border-color: var(--progress); color: var(--progress); font-weight: 700; }
+.statebox.st-done { border-color: var(--done); color: var(--done); }
+.statebox.st-blocked { border-color: var(--blocked); color: var(--blocked); background: transparent; }
+.sub .title.in_progress { color: var(--progress); font-weight: 600; }
+.sub .title.blocked { color: var(--muted); }
+.iconbtn {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 2px 3px; border-radius: 4px;
+}
+.iconbtn:hover { color: var(--accent); background: var(--panel-2); }
+.iconbtn.danger:hover { color: var(--blocked); }
 .sub.dragging { opacity: .4; }
 .sub.dropinto { border-top: 2px solid var(--accent); }
-.dep { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.dep {
+  font-size: 11px; color: var(--muted); white-space: nowrap; cursor: help;
+  border: 1px solid var(--border); border-radius: 999px; padding: 0 6px;
+}
+.dep.unmet { color: var(--blocked); border-color: var(--blocked); }
 .lockbtn.on { color: var(--high); border-color: var(--high); }
 .toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
@@ -770,8 +800,12 @@ function drawTask() {
 
   var d = document.createElement('div');
   d.className = 'drawer';
+  var savedWidth = null;
+  try { savedWidth = localStorage.getItem('saga.drawerWidth'); } catch (e) { savedWidth = null; }
+  if (savedWidth) d.style.width = savedWidth;
 
-  var h = '<div class="row"><span class="grow"></span>' +
+  var h = '<div class="drawer-resize" id="drawerResize" title="Drag to resize"></div>' +
+    '<div class="row"><span class="grow"></span>' +
     '<button class="btn" id="refreshTask" title="Re-read this task from the database">⟳ Refresh</button>' +
     (ed ? '<button class="btn" id="editTask">Edit task</button>' : '') +
     '<button class="btn" id="closeDrawer">Close ✕</button></div>';
@@ -820,22 +854,33 @@ function drawTask() {
   h += t.subtasks.length ? t.subtasks.map(function (s) {
     var deps = s.depends_on || [];
     var blocked = !!s.blocked;
+    var unmet = deps.filter(function (d) { return d.status !== 'done'; });
+    // The blocked marker lives on the control itself rather than prefixing the
+    // title, and the control stays clickable — being blocked is a warning, not
+    // a locked door (see #26: overriding is allowed, but it must be deliberate).
+    var glyph = blocked ? '⛔' : s.status === 'done' ? '✓' : s.status === 'in_progress' ? '▶' : '';
+    var stateTitle = blocked
+      ? 'Blocked by ' + unmet.map(function (d) { return '#' + d.id + ' ' + d.title; }).join(', ')
+      : 'Status: ' + label(s.status) + ' — click to advance';
     return '<div class="sub' + (blocked ? ' blocked' : '') + '" data-subtask-row="' + s.id + '"' +
       (ed ? ' draggable="true"' : '') + '>' +
       (ed ? '<span class="handle" title="Drag to reorder">⠿</span>' : '') +
-      (ed ? '<input type="checkbox" data-subtask-toggle="' + s.id + '"' +
-            (s.status === 'done' ? ' checked' : '') +
-            (blocked ? ' title="Blocked until its prerequisites are done"' : '') + '>'
-          : '<span class="dot st-' + esc(s.status) + '"></span>') +
-      '<span class="grow' + (s.status === 'done' ? ' muted strike' : '') + '">' +
-        (blocked ? '⛔ ' : '') + esc(s.title) + '</span>' +
+      (ed
+        ? '<button class="statebox st-' + (blocked ? 'blocked' : esc(s.status)) + '" ' +
+          'data-subtask-cycle="' + s.id + '" title="' + esc(stateTitle) + '">' + glyph + '</button>'
+        : '<span class="dot st-' + esc(s.status) + '"></span>') +
+      '<span class="grow ellip title ' + (blocked ? 'blocked' : esc(s.status)) +
+        (s.status === 'done' ? ' muted strike' : '') + '" title="' + esc(s.title) + '">' +
+        esc(s.title) + '</span>' +
       (deps.length
-        ? '<span class="dep" title="' + esc(deps.map(function (d) { return d.title; }).join(', ')) + '">after ' +
-          deps.map(function (d) { return '#' + d.id; }).join(', ') + '</span>'
+        ? '<span class="dep' + (unmet.length ? ' unmet' : '') + '" title="' +
+          esc('Waits on: ' + deps.map(function (d) {
+            return '#' + d.id + ' ' + d.title + (d.status === 'done' ? ' (done)' : '');
+          }).join(', ')) + '">' + deps.length + ' dep' + (deps.length === 1 ? '' : 's') + '</span>'
         : '') +
-      (ed ? '<button class="link" data-subtask-deps="' + s.id + '">deps</button>' +
-            '<button class="link" data-subtask-rename="' + s.id + '">rename</button>' +
-            '<button class="link" data-subtask-del="' + s.id + '">remove</button>' : '') +
+      (ed ? '<button class="iconbtn" data-subtask-deps="' + s.id + '" title="Set what this waits on">⛓</button>' +
+            '<button class="iconbtn" data-subtask-rename="' + s.id + '" title="Rename">✎</button>' +
+            '<button class="iconbtn danger" data-subtask-del="' + s.id + '" title="Remove">✕</button>' : '') +
       '</div>';
   }).join('') : '<div class="empty">None.</div>';
   if (ed) {
@@ -1088,13 +1133,37 @@ document.addEventListener('click', function (ev) {
       .then(function (r) { toast(r.message); return refresh(); }).catch(oops);
   }
 
+  var cycle = target.closest('[data-subtask-cycle]');
+  if (cycle) {
+    var cid = Number(cycle.dataset.subtaskCycle);
+    var sub = S.task.subtasks.filter(function (x) { return x.id === cid; })[0];
+    var next = { todo: 'in_progress', in_progress: 'done', done: 'todo' }[sub.status] || 'todo';
+    var args = { id: cid, status: next };
+    if (sub.blocked && next !== 'todo') {
+      var unmet = (sub.depends_on || []).filter(function (d) { return d.status !== 'done'; });
+      var msg = 'This subtask is blocked by ' +
+        unmet.map(function (d) { return '#' + d.id + ' ' + d.title; }).join(', ') +
+        '.\\n\\nMark it ' + label(next) + ' anyway? The override is recorded in the activity log.';
+      if (!confirm(msg)) return;
+      args.force = true;
+    }
+    return act('subtask_update', args).then(function () { return refresh(); }).catch(oops);
+  }
+
   var depsBtn = target.closest('[data-subtask-deps]');
   if (depsBtn) {
     var sid = Number(depsBtn.dataset.subtaskDeps);
     var self = S.task.subtasks.filter(function (x) { return x.id === sid; })[0];
     var current = (self.depends_on || []).map(function (d) { return d.id; });
-    var siblings = S.task.subtasks.filter(function (x) { return x.id !== sid; }).map(function (x) {
-      return { value: x.id, text: '#' + x.id + '  ' + x.title + (x.status === 'done' ? '  ✓' : '') };
+    var siblings = S.task.subtasks.filter(function (x) {
+      if (x.id === sid) return false;
+      // A finished sibling cannot block anything, so it is noise when choosing
+      // prerequisites — unless it is already one, in which case it must stay
+      // visible to be unchecked.
+      return x.status !== 'done' || current.indexOf(x.id) >= 0;
+    }).map(function (x) {
+      return { value: x.id, text: '#' + x.id + '  ' + x.title +
+        (x.status === 'done' ? '  (done)' : x.status === 'in_progress' ? '  (in progress)' : '') };
     });
     return modal('“' + self.title + '” waits on…', [
       { key: 'depends_on', label: 'Prerequisite subtasks — it stays blocked until these are done',
@@ -1216,7 +1285,16 @@ document.addEventListener('change', function (ev) {
     return;
   }
   if (target.id === 'quickStatus') {
-    act('task_update', { id: S.task.id, status: target.value })
+    var args = { id: S.task.id, status: target.value };
+    var open = (S.task.subtasks || []).filter(function (x) { return x.status !== 'done'; });
+    if (target.value === 'done' && open.length > 0) {
+      var msg = open.length + ' subtask(s) are unfinished:\\n\\n' +
+        open.map(function (x) { return '  • ' + x.title + ' (' + label(x.status) + ')'; }).join('\\n') +
+        '\\n\\nComplete the task anyway? The override is recorded in the activity log.';
+      if (!confirm(msg)) { target.value = S.task.status; return; }
+      args.force = true;
+    }
+    act('task_update', args)
       .then(function () { toast('Status updated'); return refresh(); }).catch(oops);
     return;
   }
@@ -1225,12 +1303,7 @@ document.addEventListener('change', function (ev) {
       .then(function () { toast('Priority updated'); return refresh(); }).catch(oops);
     return;
   }
-  var subToggle = target.closest('[data-subtask-toggle]');
-  if (subToggle) {
-    act('subtask_update', { id: Number(subToggle.dataset.subtaskToggle),
-                            status: target.checked ? 'done' : 'todo' })
-      .then(function () { return refresh(); }).catch(oops);
-  }
+
 });
 
 document.addEventListener('keydown', function (ev) {
@@ -1250,6 +1323,33 @@ document.addEventListener('input', function (ev) {
   clearTimeout(qTimer);
   var v = ev.target.value.trim();
   qTimer = setTimeout(function () { S.query = v.length >= 2 ? v : ''; render(); }, 220);
+});
+
+/* drag the drawer's left edge to resize it; the width persists per browser */
+var resizing = false;
+document.addEventListener('mousedown', function (ev) {
+  if (!ev.target.closest || !ev.target.closest('#drawerResize')) return;
+  resizing = true;
+  ev.target.classList.add('active');
+  document.body.classList.add('resizing');
+  ev.preventDefault();
+});
+document.addEventListener('mousemove', function (ev) {
+  if (!resizing) return;
+  var width = Math.min(Math.max(window.innerWidth - ev.clientX, 380), window.innerWidth - 60);
+  var drawer = document.querySelector('.drawer');
+  if (drawer) drawer.style.width = width + 'px';
+});
+document.addEventListener('mouseup', function () {
+  if (!resizing) return;
+  resizing = false;
+  document.body.classList.remove('resizing');
+  var grip = document.querySelector('.drawer-resize');
+  if (grip) grip.classList.remove('active');
+  var drawer = document.querySelector('.drawer');
+  if (drawer) {
+    try { localStorage.setItem('saga.drawerWidth', drawer.style.width); } catch (e) { /* private mode */ }
+  }
 });
 
 /* drag a subtask onto another to reorder the checklist */
@@ -1335,7 +1435,13 @@ document.addEventListener('drop', function (ev) {
   var current = S.tasks.filter(function (t) { return t.id === id; })[0];
   dragId = null;
   if (current && current.status === status) return;
-  act('task_update', { id: id, status: status })
+  var payload = { id: id, status: status };
+  if (status === 'done' && current && current.subtask_count > current.subtask_done) {
+    var left = current.subtask_count - current.subtask_done;
+    if (!confirm(left + ' subtask(s) on “' + current.title + '” are unfinished. Complete it anyway?')) return;
+    payload.force = true;
+  }
+  act('task_update', payload)
     .then(function () { toast('Moved to ' + label(status)); return refresh(); }).catch(oops);
 });
 

@@ -42,7 +42,9 @@ test('task_list scoped by project_id only returns that project', () => {
 });
 
 test('project_id composes with the other task filters', () => {
-  t.task_update({ id: alphaTasks[0].id, status: 'done' });
+  // a1 carries a subtask, and completing a task with an open checklist now
+  // needs an explicit override (#26)
+  t.task_update({ id: alphaTasks[0].id, status: 'done', force: true });
   const done = t.task_list({ project_id: alpha.id, status: 'done', limit: 100 });
   assert.deepEqual(titlesOf(done), ['a1']);
   assert.equal(t.task_list({ project_id: beta.id, status: 'done', limit: 100 }).length, 0);

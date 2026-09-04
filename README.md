@@ -390,7 +390,22 @@ subtask_update({ id: 8, depends_on: [5, 6] })    # 8 waits for 5 and 6
 subtask_update({ id: 4, blocks: [5, 6, 7, 8] })  # a bug that holds up the rest
 ```
 
-Reads then carry `depends_on` and `blocked`, and the UI marks blocked items. Dependencies stay
+Reads carry `depends_on` and `blocked`, and the block is **enforced on write**: starting or
+finishing a subtask whose prerequisites are unmet is refused, and so is completing a task whose
+checklist is still open.
+
+```
+subtask_update({ id: 8, status: "in_progress" })
+  -> Subtask 8 cannot be started — it waits on #5 'write the parser' (todo).
+     Finish those first, or pass force: true to override deliberately (the override is logged).
+```
+
+`force: true` is the way past, for when a person has decided the blocker no longer applies. It
+works on `subtask_update`, `task_update` and `task_batch_update`, and every override is written to
+the activity log naming what was skipped. The web UI asks for confirmation and then sends it.
+
+The distinction that matters is between an agent quietly ignoring a blocker and someone choosing
+to override one. Dependencies stay
 within one task — a checklist item waiting on something under a *different* task is a task-level
 dependency, and `task_update depends_on` already models that. Cycles are refused with the loop
 spelled out.
@@ -424,7 +439,7 @@ What you get:
 - **Board** — kanban across the five task statuses; drag a card to change its status
 - **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an agent just wrote
 - **Notes** and **Activity** — decisions and the complete change history
-- **Task drawer** — edit any field, tick subtasks, comment, remove or restore a comment, lock the description, drag subtasks into order, and set which subtasks wait on which
+- **Task drawer** — edit any field, comment, remove or restore a comment, lock the description, drag subtasks into order, and set which subtasks wait on which. Each subtask has one control carrying its whole state (todo / in progress / done, or blocked), and the drawer resizes by dragging its edge
 - **Project switcher** — every project in the database, so one central `.tracker.db` covers all your repos; every tab, including Activity, is scoped to the selected project
 - **Shareable, refreshable URLs** — the open project, tab and task live in the address bar, so a browser refresh puts you back where you were and back/forward move between tasks. A ⟳ button in the task drawer re-reads that task without a page reload, for picking up what an agent just wrote
 

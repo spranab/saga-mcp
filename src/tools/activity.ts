@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
 import { resolveProjectId, activityScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { slimList } from '../helpers/slim.js';
+import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { reevaluateDownstream } from './tasks.js';
 import type { ToolHandler } from '../types.js';
@@ -64,6 +65,7 @@ export const definitions: Tool[] = [
         status: { type: 'string', enum: ['todo', 'in_progress', 'review', 'done', 'blocked'] },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
         assigned_to: { type: 'string' },
+        force: FORCE_SCHEMA,
       },
       required: ['ids'],
     },
@@ -176,6 +178,9 @@ function handleTaskBatchUpdate(args: Record<string, unknown>) {
     return ids.map((id) => {
       const oldRow = getStmt.get(id) as Record<string, unknown> | undefined;
       if (!oldRow) throw new Error(`Task ${id} not found`);
+
+      // Same rule as task_update — a batch is not a way around the check.
+      const leftOpen = guardTaskDone(db, id, status, args.force === true);
 
       const updates: string[] = [];
       const params: unknown[] = [];

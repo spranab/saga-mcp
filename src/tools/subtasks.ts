@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db.js';
 import { logActivity } from '../helpers/activity-logger.js';
+import { guardSubtaskStatus, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -32,7 +33,7 @@ export const definitions: Tool[] = [
   {
     name: 'subtask_update',
     description:
-      'Update a subtask title, status or position. depends_on sets which siblings it waits on; blocks makes it a prerequisite of others. Both replace the existing set; [] clears it.',
+      'Update a subtask title, status or position. depends_on sets what it waits on, blocks the inverse; both replace the set, [] clears. Starting or finishing one with unmet prerequisites needs force.',
     annotations: { title: 'Update Subtask', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -51,6 +52,7 @@ export const definitions: Tool[] = [
           items: { type: 'integer' },
           description: 'Siblings that wait on this one — inverse of depends_on',
         },
+        force: FORCE_SCHEMA,
       },
       required: ['id'],
     },
@@ -253,6 +255,10 @@ function handleSubtaskUpdate(args: Record<string, unknown>) {
   if (!oldRow) throw new Error(`Subtask ${id} not found`);
   const taskId = oldRow.task_id as number;
 
+  // #26: a dependency that does not stop anything is decoration. Refuse to move
+  // a blocked subtask forward unless the caller says so explicitly.
+  const overridden = guardSubtaskStatus(db, id, args.status, args.force === true);
+
   const updates: string[] = [];
   const params: unknown[] = [];
 
@@ -282,10 +288,13 @@ function handleSubtaskUpdate(args: Record<string, unknown>) {
       .get(...params) as Record<string, unknown>;
 
     if (oldRow.status !== newRow.status) {
+      const override = overridden.length > 0
+        ? ` (forced past ${overridden.map((b) => `#${b.id}`).join(', ')})`
+        : '';
       logActivity(
         db, 'subtask', id, 'status_changed', 'status',
         oldRow.status as string, newRow.status as string,
-        `Subtask '${newRow.title}' status: ${oldRow.status} -> ${newRow.status}`
+        `Subtask '${newRow.title}' status: ${oldRow.status} -> ${newRow.status}${override}`
       );
     }
   }

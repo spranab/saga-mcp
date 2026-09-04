@@ -10,7 +10,7 @@ export const definitions: Tool[] = [
   {
     name: 'tracker_dashboard',
     description:
-      'Get a comprehensive project overview in a single call. Returns: project info, all epics with task counts, overall stats (total/done/blocked/in_progress), recent activity, and recent notes. This is the best first tool to call when starting work on a project. Pass branch="current" to scope the dashboard to the active git branch.',
+      'Full project overview in one call: project, epics with task counts, stats, blocked and overdue tasks, recent activity and notes. Best first call when starting work. branch="current" scopes to the active git branch.',
     annotations: { title: 'Project Dashboard', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
