@@ -1,13 +1,25 @@
 name: Publish to npm
 
+# Publishing is triggered by PUBLISHING A RELEASE, not by pushing a tag.
+#
+# Pushing a tag used to publish immediately, which put the irreversible step
+# first: the package was on npm before anyone had looked at the tagged build.
+# A version number can never be reused, so that ordering was backwards.
+#
+# The flow is now:
+#   1. tag the commit and push the tag        (nothing is published)
+#   2. verify the tagged build — npm run e2e  (packs and tests the real tarball)
+#   3. publish a GitHub release for that tag  (this fires the publish)
+#
+# Step 3 is the deliberate act. Draft releases do not trigger anything, so a
+# draft can sit while step 2 runs.
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish (e.g. v1.7.0)'
+        description: 'Tag to publish (e.g. v1.8.1) — for retrying a failed publish'
         required: true
 
 jobs:
@@ -17,9 +29,26 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Work out what we are publishing
+        id: target
+        run: |
+          TAG="${{ github.event.inputs.tag || github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No tag to publish. This workflow runs on a published release, or on manual dispatch with a tag."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # A GitHub pre-release goes to the `next` dist-tag so it never becomes
+          # what `npm install saga-mcp` gives people by default.
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ steps.target.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
@@ -30,26 +59,36 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      # Publishing is irreversible — a version number can never be reused — so
-      # the suite runs first. This is the only gate before the registry.
+      # The suite runs against the tagged build, not the branch tip.
       - name: Test
         run: node --test
         timeout-minutes: 5
 
-      # Catch the tag/package.json mismatch before it reaches npm, where the
-      # error is a confusing 404 rather than "you tagged the wrong version".
+      # Catch a tag/package.json mismatch here, where the message is clear.
+      # npm reports it as the same confusing 404 it uses for auth failures.
       - name: Check the tag matches package.json
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="${{ steps.target.outputs.tag }}"
           PKG="v$(node -p "require('./package.json').version")"
           if [ "$TAG" != "$PKG" ]; then
             echo "::error::Tag $TAG does not match package.json ($PKG). Bump the version or retag."
             exit 1
           fi
-          echo "Publishing $PKG"
+          echo "Publishing $PKG to the '${{ steps.target.outputs.npm_tag }}' dist-tag"
+
+      # Refuse to republish a version that already exists, rather than letting
+      # npm answer with a 403 that reads like an auth problem.
+      - name: Check the version is not already published
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          if npm view "saga-mcp@$PKG" version >/dev/null 2>&1; then
+            echo "::error::saga-mcp@$PKG is already on npm. A published version cannot be replaced — bump the version and tag again."
+            exit 1
+          fi
+          echo "saga-mcp@$PKG is not yet published"
 
       - name: Publish
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag ${{ steps.target.outputs.npm_tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -61,4 +100,4 @@ jobs:
           echo "::notice::rather than 403 so it does not disclose whether a package exists."
           echo "::notice::Mint a new automation token at npmjs.com/settings/~/tokens, then:"
           echo "::notice::  gh secret set NPM_TOKEN"
-          echo "::notice::and re-run this workflow."
+          echo "::notice::and re-run this workflow with the tag as input."
