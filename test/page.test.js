@@ -14,6 +14,8 @@ import { PAGE } from '../dist/web/ui.js';
  */
 
 const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+const css = PAGE.match(/<style>([\s\S]*?)<\/style>/)[1]
+  .replace(/\/\*[\s\S]*?\*\//g, '');   // comments would leak into selectors
 
 function element() {
   const node = {
@@ -177,4 +179,90 @@ test('the task drawer offers a refresh control', () => {
 test('every write still goes through the guarded action endpoint', () => {
   assert.ok(script.includes("'/api/action'"));
   assert.ok(script.includes("'x-saga-ui': '1'"), 'the CSRF header must not be dropped');
+});
+
+/* ---------- CSS cascade ---------- */
+
+/** Every rule that declares `property`, in source order. */
+function declarationsOf(property) {
+  const out = [];
+  for (const [, rawSelector, body] of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    // Split the declaration block by hand rather than building a regex from the
+    // property name — it keeps this readable and avoids escaping surprises.
+    let value = null;
+    for (const part of body.split(';')) {
+      const colon = part.indexOf(':');
+      if (colon < 0) continue;
+      if (part.slice(0, colon).trim() !== property) continue;
+      value = part.slice(colon + 1).trim();
+    }
+    if (value === null) continue;
+    for (const sel of rawSelector.split(',').map((x) => x.trim())) {
+      out.push({ sel, value });
+    }
+  }
+  return out;
+}
+
+/** Rough specificity: [ids, classes+attributes+pseudo-classes, element types]. */
+function specificity(sel) {
+  const ids = (sel.match(/#[\w-]+/g) || []).length;
+  const classes = (sel.match(/\.[\w-]+|\[[^\]]+\]|:[\w-]+/g) || []).length;
+  const types = (sel.match(/(^|[\s>+~])[a-z]+/gi) || []).length;
+  return [ids, classes, types];
+}
+
+/**
+ * Does this selector apply to an <input type=checkbox> sitting inside the given
+ * ancestor class? Deliberately narrow — it only understands the handful of
+ * shapes this stylesheet uses.
+ */
+function appliesToCheckbox(sel, ancestorClasses) {
+  if (sel.includes(':not([type=checkbox])')) return false;
+  const parts = sel.split(/\s+/);
+  const target = parts[parts.length - 1];
+  if (target !== 'input' && target !== 'input[type=checkbox]') return false;
+  const ancestors = parts.slice(0, -1);
+  return ancestors.every((a) => ancestorClasses.includes(a));
+}
+
+/** The declaration that actually wins: highest specificity, latest on a tie. */
+function winner(candidates) {
+  let best = null;
+  candidates.forEach((c, order) => {
+    const spec = specificity(c.sel);
+    if (!best) { best = { ...c, spec, order }; return; }
+    for (let i = 0; i < 3; i++) {
+      if (spec[i] !== best.spec[i]) { if (spec[i] > best.spec[i]) best = { ...c, spec, order }; return; }
+    }
+    best = { ...c, spec, order }; // equal specificity: later wins
+  });
+  return best;
+}
+
+test('a checkbox inside a form field keeps its natural width', () => {
+  // Reported on #25: the checkbox filled its row and pushed the label onto the
+  // next line. `.field input { width: 100% }` and `input[type=checkbox] { width: auto }`
+  // had identical specificity, so whichever came last silently won. Asserting
+  // the source order of two rules would be brittle, so resolve the cascade.
+  const widths = declarationsOf('width');
+  const applicable = widths.filter((d) => appliesToCheckbox(d.sel, ['.field', '.checkrow']));
+  assert.ok(applicable.length > 0, 'expected at least one width rule to reach a checkbox');
+  const won = winner(applicable);
+  assert.notEqual(won.value, '100%',
+    `a checkbox in a .field would be stretched by "${won.sel} { width: ${won.value} }"`);
+  assert.equal(won.value, 'auto');
+});
+
+test('the deps checklist row lays out on one line', () => {
+  assert.match(css, /\.checkrow \{[^}]*display: flex/);
+  assert.match(css, /\.checkrow input\[type=checkbox\][^}]*width: auto/);
+  assert.match(css, /\.checkrow input\[type=checkbox\][^}]*flex: none/);
+});
+
+test('ordinary text inputs in a field still fill the row', () => {
+  // The fix must not quietly regress every other form field.
+  const rule = declarationsOf('width').find((d) => d.sel === '.field input:not([type=checkbox])');
+  assert.ok(rule, 'the .field input width rule should still exist');
+  assert.equal(rule.value, '100%');
 });

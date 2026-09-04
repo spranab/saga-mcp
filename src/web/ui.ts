@@ -200,7 +200,7 @@ body.resizing { cursor: ew-resize; user-select: none; }
 .modal h2 { margin: 0 0 14px; font-size: 16px; }
 .field { margin-bottom: 12px; }
 .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-.field input, .field select { width: 100%; }
+.field input:not([type=checkbox]), .field select { width: 100%; }
 .field.inline { display: flex; gap: 10px; }
 .field.inline > div { flex: 1; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
@@ -220,6 +220,8 @@ body.resizing { cursor: ew-resize; user-select: none; }
 .act time { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .checklist { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
 .checkrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
+.checkrow input[type=checkbox] { width: auto; flex: none; margin: 0; }
+.checkrow span { flex: 1; min-width: 0; }
 .sub .handle { cursor: grab; color: var(--muted); user-select: none; font-size: 12px; }
 /* One control per subtask carrying its whole state: todo / in progress / done,
    or blocked. Clicking advances it, so 'in progress' is reachable from the UI. */
