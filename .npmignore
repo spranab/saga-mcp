@@ -6,3 +6,4 @@
 *.db-shm
 icon.svg
 test/
+scripts/

@@ -532,7 +532,7 @@ DB_PATH=./test.db npm start
 node dist/web/index.js ./test.db --open
 
 npm test     # unit and integration, ~140 tests, no network
-npm run e2e  # packs a tarball, installs it, drives the real binaries
+npm run e2e  # release gate: packs a tarball, installs it, drives the real binaries
 ```
 
 ### Releasing
