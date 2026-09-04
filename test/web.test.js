@@ -100,7 +100,8 @@ test('unknown routes 404', async () => {
 test('a write goes through and is visible on the next read', async () => {
   const res = await post(editable.base, {
     tool: 'task_update',
-    args: { id: fixture.tasks[0].id, status: 'done', priority: 'critical' },
+    // tasks[0] has subtasks, so completing it needs the #26 override
+    args: { id: fixture.tasks[0].id, status: 'done', priority: 'critical', force: true },
   });
   assert.equal(res.status, 200);
   const t = await (await fetch(`${editable.base}/api/tasks/${fixture.tasks[0].id}`)).json();

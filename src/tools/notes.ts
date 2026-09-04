@@ -9,7 +9,7 @@ export const definitions: Tool[] = [
   {
     name: 'note_save',
     description:
-      'Create or update a note. Notes capture decisions, context, progress, meeting notes, blockers, technical details, or release info. If "id" is provided, updates the existing note; otherwise creates a new one.',
+      'Create or update a note: decisions, context, progress, meetings, blockers, technical detail, releases. With id, updates; without, creates.',
     annotations: { title: 'Save Note', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',

@@ -7,6 +7,7 @@ import { slimListRow, LIST_DESCRIPTION_CHARS } from '../helpers/slim.js';
 import { resolveProjectId, taskScopeClause, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { resolveBranch } from '../helpers/git.js';
 import { withDependencies } from './subtasks.js';
+import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -37,9 +38,9 @@ export const definitions: Tool[] = [
           type: 'object',
           description: 'Link to source code location',
           properties: {
-            file: { type: 'string', description: 'File path' },
-            line_start: { type: 'integer', description: 'Start line number' },
-            line_end: { type: 'integer', description: 'End line number' },
+            file: { type: 'string' },
+            line_start: { type: 'integer' },
+            line_end: { type: 'integer' },
             repo: { type: 'string', description: 'Repository URL or name' },
             commit: { type: 'string', description: 'Commit hash' },
           },
@@ -54,9 +55,9 @@ export const definitions: Tool[] = [
   {
     name: 'task_list',
     description:
-      'List tasks with optional filters. If no epic_id given, lists across ALL epics. Includes subtask counts and dependency info. ' +
-      'Rows are compact: nulls and metadata omitted, descriptions cut to ' + LIST_DESCRIPTION_CHARS + ' chars — use task_get for the full task. ' +
-      'Pass branch="current" to restrict to tasks whose epic is scoped to the active git branch.',
+      'List tasks with optional filters; without epic_id, across all epics. Includes subtask and dependency counts. ' +
+      'Rows are compact: nulls and metadata dropped, descriptions cut to ' + LIST_DESCRIPTION_CHARS + ' chars (task_get for full). ' +
+      'branch="current" restricts to the active git branch.',
     annotations: { title: 'List Tasks', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -110,7 +111,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_update',
     description:
-      'Update a task. Pass only fields to change. Status transitions are automatically logged in the activity log.',
+      'Update a task; pass only fields to change. Completing it while subtasks are unfinished is refused unless force is set.',
     annotations: { title: 'Update Task', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -128,9 +129,9 @@ export const definitions: Tool[] = [
           type: 'object',
           description: 'Link to source code location',
           properties: {
-            file: { type: 'string', description: 'File path' },
-            line_start: { type: 'integer', description: 'Start line number' },
-            line_end: { type: 'integer', description: 'End line number' },
+            file: { type: 'string' },
+            line_start: { type: 'integer' },
+            line_end: { type: 'integer' },
             repo: { type: 'string', description: 'Repository URL or name' },
             commit: { type: 'string', description: 'Commit hash' },
           },
@@ -139,6 +140,7 @@ export const definitions: Tool[] = [
         depends_on: { type: 'array', items: { type: 'integer' }, description: 'Task IDs this task depends on (replaces existing)' },
         sort_order: { type: 'integer' },
         tags: { type: 'array', items: { type: 'string' } },
+        force: FORCE_SCHEMA,
       },
       required: ['id'],
     },
@@ -391,6 +393,10 @@ function handleTaskUpdate(args: Record<string, unknown>) {
     );
   }
 
+  // #26 follow-up: finishing a task with an unfinished checklist is almost
+  // always an oversight. Say what is left rather than silently accepting it.
+  const leftOpen = guardTaskDone(db, id, args.status, args.force === true);
+
   const update = buildUpdate('tasks', id, args, [
     'title', 'description', 'status', 'priority', 'assigned_to',
     'estimated_hours', 'actual_hours', 'due_date', 'source_ref', 'sort_order', 'tags',
@@ -403,6 +409,11 @@ function handleTaskUpdate(args: Record<string, unknown>) {
     logEntityUpdate(db, 'task', id, newRow.title as string, oldRow, newRow, [
       'status', 'priority', 'assigned_to', 'title',
     ]);
+    if (leftOpen.length > 0) {
+      logActivity(db, 'task', id, 'updated', 'status', oldRow.status as string, 'done',
+        `Task '${newRow.title}' forced to done with ${leftOpen.length} unfinished subtask(s): ` +
+          leftOpen.map((b) => `#${b.id}`).join(', '));
+    }
   } else if (args.depends_on !== undefined) {
     // Only depends_on changed, no column updates
     newRow = oldRow;
