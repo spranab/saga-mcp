@@ -29,3 +29,28 @@ jobs:
       # The suite starts real servers and binds real ports, so give it room.
       - run: node --test
         timeout-minutes: 5
+
+  # The lockfile went stale silently once (#33): transitive dependencies of the
+  # MCP SDK picked up advisories while `npm ci` kept installing the pinned
+  # versions. This surfaces that without blocking merges on advisories in
+  # upstream packages nobody here can patch.
+  audit:
+    runs-on: ubuntu-latest
+    name: npm audit
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::notice::Advisories in the locked dependency tree."
+          echo "::notice::If a fix exists: npm audit fix (lockfile only, no package.json change)."
+          echo "::notice::saga-mcp publishes no lockfile, so consumers resolve fresh — this"
+          echo "::notice::affects CI and contributors rather than installed users."
