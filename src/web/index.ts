@@ -36,6 +36,7 @@ const WRITE_TOOLS: Record<string, (args: Record<string, unknown>) => unknown> = 
   task_create: taskHandlers.task_create,
   task_update: taskHandlers.task_update,
   task_lock_description: taskHandlers.task_lock_description,
+  task_reorder: taskHandlers.task_reorder,
   task_delete: taskHandlers.task_delete,
   task_restore: taskHandlers.task_restore,
   subtask_create: subtaskHandlers.subtask_create,

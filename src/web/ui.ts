@@ -250,6 +250,14 @@ body.resizing { cursor: ew-resize; user-select: none; }
   border: 1px solid var(--border); border-radius: 999px; padding: 0 6px;
 }
 .dep.unmet { color: var(--blocked); border-color: var(--blocked); }
+.blockedbanner {
+  display: flex; align-items: center; gap: 8px; margin: 10px 0 4px;
+  padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  border: 1px solid var(--blocked); color: var(--blocked); background: var(--panel-2);
+}
+.tline.dragging { opacity: .4; }
+.tline.dropinto { border-top: 2px solid var(--accent); }
+.tline .thandle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; }
 .lockbtn.on { color: var(--high); border-color: var(--high); }
 .card.archived { opacity: .62; border-style: dashed; }
 .tline.removed .ellip { text-decoration: line-through; color: var(--muted); }
@@ -619,8 +627,11 @@ function tile(n, l) {
   return '<div class="tile"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>';
 }
 
-function taskLine(t, extra) {
-  return '<div class="tline" data-task="' + t.id + '">' +
+function taskLine(t, extra, opts) {
+  var drag = opts && opts.draggable && canEdit();
+  return '<div class="tline" data-task="' + t.id + '"' +
+    (drag ? ' data-task-row="' + t.id + '" data-epic="' + t.epic_id + '" draggable="true"' : '') + '>' +
+    (drag ? '<span class="thandle" title="Drag to reorder">⠿</span>' : '') +
     '<span class="dot st-' + esc(t.status) + '"></span>' +
     '<span class="grow ellip">' + esc(t.title) + '</span>' +
     (extra ? '<span class="muted" style="font-size:12px">' + extra + '</span>' : '') +
@@ -698,7 +709,7 @@ function viewEpics() {
           var copy = {};
           for (var k in t) copy[k] = t[k];
           copy.epic_name = '';
-          return taskLine(copy, extra);
+          return taskLine(copy, extra, { draggable: true });
         }).join('') : '<div class="empty">No tasks in this epic.</div>') +
         '</div></div>';
     }
@@ -842,6 +853,13 @@ function drawTask() {
     (ed ? '<button class="btn" id="editTask">Edit task</button>' : '') +
     '<button class="btn" id="closeDrawer">Close ✕</button></div>';
   h += '<h2 style="margin:6px 0 8px;font-size:18px">' + esc(t.title) + '</h2>';
+  var unmetDeps = (t.depends_on || []).filter(function (d) { return d.status !== 'done'; });
+  if (unmetDeps.length) {
+    h += '<div class="blockedbanner">⛔ <span class="grow">Blocked by ' +
+      unmetDeps.map(function (d) {
+        return '<a href="#" data-task="' + d.id + '">#' + d.id + ' ' + esc(d.title) + '</a>';
+      }).join(', ') + '</span></div>';
+  }
   if (t.is_deleted) {
     h += '<div class="empty" style="color:var(--blocked)">This task was removed' +
       (t.deleted_by ? ' by ' + esc(t.deleted_by) : '') +
@@ -927,17 +945,22 @@ function drawTask() {
       '<button class="btn" id="addSubtask">Add</button></div>';
   }
 
-  if (t.depends_on.length || t.dependents.length) {
-    h += '<h3>Dependencies</h3>';
-    t.depends_on.forEach(function (x) {
-      h += '<div class="sub"><span class="muted">blocked by</span><span class="dot st-' + esc(x.status) +
-           '"></span><a href="#" data-task="' + x.id + '">' + esc(x.title) + '</a></div>';
-    });
-    t.dependents.forEach(function (x) {
-      h += '<div class="sub"><span class="muted">blocks</span><span class="dot st-' + esc(x.status) +
-           '"></span><a href="#" data-task="' + x.id + '">' + esc(x.title) + '</a></div>';
-    });
+  h += '<h3>Dependencies' +
+    (ed ? ' <button class="btn" id="editTaskDeps" title="Choose what this task waits on">⛓ Edit</button>' : '') +
+    '</h3>';
+  if (!t.depends_on.length && !t.dependents.length) {
+    h += '<div class="empty">None.</div>';
   }
+  t.depends_on.forEach(function (x) {
+    h += '<div class="sub"><span class="muted">waits on</span><span class="dot st-' + esc(x.status) +
+         '"></span><a href="#" class="grow ellip" data-task="' + x.id + '">#' + x.id + ' ' + esc(x.title) + '</a>' +
+         (ed ? '<button class="iconbtn danger" data-drop-dep="' + x.id + '" title="Remove this dependency">✕</button>' : '') +
+         '</div>';
+  });
+  t.dependents.forEach(function (x) {
+    h += '<div class="sub"><span class="muted">blocks</span><span class="dot st-' + esc(x.status) +
+         '"></span><a href="#" class="grow ellip" data-task="' + x.id + '">#' + x.id + ' ' + esc(x.title) + '</a></div>';
+  });
 
   var liveComments = t.comments.filter(function (c) { return !c.is_deleted; }).length;
   h += '<h3>Comments <span class="muted">(' + liveComments + ')</span></h3>';
@@ -1216,6 +1239,37 @@ document.addEventListener('click', function (ev) {
     return act('subtask_update', args).then(function () { return refresh(); }).catch(oops);
   }
 
+  if (target.id === 'editTaskDeps') {
+    var self = S.task;
+    var current = (self.depends_on || []).map(function (d) { return d.id; });
+    // Task dependencies are project-wide, so offer every other task, labelled
+    // with its epic. Finished ones are omitted unless already selected —
+    // a done task cannot block anything.
+    var candidates = S.tasks.filter(function (x) {
+      if (x.id === self.id) return false;
+      return x.status !== 'done' || current.indexOf(x.id) >= 0;
+    }).map(function (x) {
+      return { value: x.id, text: '#' + x.id + '  ' + x.title + '  · ' + (x.epic_name || '') +
+        (x.status === 'done' ? '  (done)' : '') };
+    });
+    return modal('“' + self.title + '” waits on…', [
+      { key: 'depends_on', label: 'Tasks that must finish first — this one is blocked until they are done',
+        type: 'checkboxes', options: candidates, value: current }
+    ], 'Save', function (values) {
+      return act('task_update', { id: self.id, depends_on: values.depends_on })
+        .then(function () { toast('Dependencies updated'); return refresh(); });
+    });
+  }
+
+  var dropDep = target.closest('[data-drop-dep]');
+  if (dropDep) {
+    var drop = Number(dropDep.dataset.dropDep);
+    var kept = (S.task.depends_on || []).map(function (d) { return d.id; })
+      .filter(function (x) { return x !== drop; });
+    return act('task_update', { id: S.task.id, depends_on: kept })
+      .then(function () { toast('Dependency removed'); return refresh(); }).catch(oops);
+  }
+
   var depsBtn = target.closest('[data-subtask-deps]');
   if (depsBtn) {
     var sid = Number(depsBtn.dataset.subtaskDeps);
@@ -1416,6 +1470,56 @@ document.addEventListener('mouseup', function () {
   if (drawer) {
     try { localStorage.setItem('saga.drawerWidth', drawer.style.width); } catch (e) { /* private mode */ }
   }
+});
+
+/* drag a task onto another to reorder within its epic */
+var dragTask = null;
+document.addEventListener('dragstart', function (ev) {
+  var row = ev.target.closest ? ev.target.closest('.tline[data-task-row]') : null;
+  if (!row) return;
+  dragTask = { id: Number(row.dataset.taskRow), epic: Number(row.dataset.epic) };
+  row.classList.add('dragging');
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', String(dragTask.id));
+  ev.stopPropagation();
+});
+document.addEventListener('dragover', function (ev) {
+  if (!dragTask) return;
+  var row = ev.target.closest ? ev.target.closest('.tline[data-task-row]') : null;
+  if (!row || Number(row.dataset.epic) !== dragTask.epic) return;
+  ev.preventDefault();
+  row.classList.add('dropinto');
+});
+document.addEventListener('dragleave', function (ev) {
+  var row = ev.target.closest ? ev.target.closest('.tline[data-task-row]') : null;
+  if (row) row.classList.remove('dropinto');
+});
+document.addEventListener('drop', function (ev) {
+  if (!dragTask) return;
+  var row = ev.target.closest ? ev.target.closest('.tline[data-task-row]') : null;
+  if (!row) return;
+  var targetEpic = Number(row.dataset.epic);
+  if (targetEpic !== dragTask.epic) { dragTask = null; return; }  // reordering is within one epic
+  ev.preventDefault();
+  ev.stopPropagation();
+  row.classList.remove('dropinto');
+  var target = Number(row.dataset.taskRow);
+  var moved = dragTask.id;
+  var epicId = dragTask.epic;
+  dragTask = null;
+  if (moved === target) return;
+
+  var order = S.tasks.filter(function (t) { return t.epic_id === epicId; }).map(function (t) { return t.id; });
+  order.splice(order.indexOf(moved), 1);
+  order.splice(order.indexOf(target), 0, moved);
+  act('task_reorder', { epic_id: epicId, ordered_ids: order })
+    .then(function () { toast('Reordered'); return refresh(); }).catch(oops);
+});
+document.addEventListener('dragend', function () {
+  dragTask = null;
+  Array.prototype.forEach.call(document.querySelectorAll('.tline.dragging, .tline.dropinto'), function (n) {
+    n.classList.remove('dragging'); n.classList.remove('dropinto');
+  });
 });
 
 /* drag a subtask onto another to reorder the checklist */

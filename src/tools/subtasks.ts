@@ -4,6 +4,7 @@ import { getDb } from '../db.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { guardSubtaskStatus, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import { asTitleList, asIdList } from '../helpers/coerce.js';
+import { assertAcyclic, subtaskEdges } from '../helpers/dependency-graph.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -131,48 +132,11 @@ function assertSameTask(db: Database.Database, taskId: number, ids: number[]): v
   }
 }
 
-/** Walk the dependency graph to keep it acyclic; a cycle would block every member forever. */
-function assertNoCycle(db: Database.Database, subtaskId: number, dependsOn: number[]): void {
-  const edges = db.prepare('SELECT subtask_id, depends_on_subtask_id FROM subtask_dependencies').all() as Array<{
-    subtask_id: number;
-    depends_on_subtask_id: number;
-  }>;
-
-  const graph = new Map<number, number[]>();
-  for (const e of edges) {
-    if (e.subtask_id === subtaskId) continue; // replaced below
-    graph.set(e.subtask_id, [...(graph.get(e.subtask_id) ?? []), e.depends_on_subtask_id]);
-  }
-  graph.set(subtaskId, dependsOn);
-
-  const seen = new Set<number>();
-  const stack = new Set<number>();
-  const walk = (node: number): number[] | null => {
-    if (stack.has(node)) return [node];
-    if (seen.has(node)) return null;
-    seen.add(node);
-    stack.add(node);
-    for (const next of graph.get(node) ?? []) {
-      const cycle = walk(next);
-      if (cycle) return [node, ...cycle];
-    }
-    stack.delete(node);
-    return null;
-  };
-
-  const cycle = walk(subtaskId);
-  if (cycle) {
-    throw new Error(
-      `That would make a circular dependency: ${cycle.map((id) => `#${id}`).join(' → ')}. ` +
-        'Nothing in a cycle can ever start.'
-    );
-  }
-}
 
 function setDependencies(db: Database.Database, subtaskId: number, taskId: number, dependsOn: number[]): void {
   const clean = [...new Set(dependsOn)].filter((id) => id !== subtaskId);
   assertSameTask(db, taskId, clean);
-  assertNoCycle(db, subtaskId, clean);
+  assertAcyclic(subtaskEdges(db), subtaskId, clean, 'subtask');
 
   db.prepare('DELETE FROM subtask_dependencies WHERE subtask_id = ?').run(subtaskId);
   const insert = db.prepare(
