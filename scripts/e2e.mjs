@@ -164,6 +164,33 @@ ok('long descriptions are previewed in lists', listed.some((r) => typeof r.descr
 ok('task_get returns the full description', (await s.call('task_get', { id: t1.id })).description.length === 400);
 ok('the dashboard reports real progress', (await s.call('tracker_dashboard', { project_id: projectId })).stats.total_tasks === 2);
 
+section('ordering and dependencies');
+{
+  const orderEpic = await s.call('epic_create', { project_id: projectId, name: 'Ordered work' });
+  const one = await s.call('task_create', { epic_id: orderEpic.id, title: 'step one', priority: 'low' });
+  const two = await s.call('task_create', { epic_id: orderEpic.id, title: 'step two', priority: 'critical' });
+  await s.call('task_reorder', { epic_id: orderEpic.id, ordered_ids: [one.id, two.id] });
+  const manual = await s.call('task_list', { epic_id: orderEpic.id, sort_by: 'manual', limit: 10 });
+  ok('task_reorder + sort_by manual round-trips', manual.map((t) => t.title).join(',') === 'step one,step two',
+     manual.map((t) => t.title).join(','));
+  const byPriority = await s.call('task_list', { epic_id: orderEpic.id, limit: 10 });
+  ok('the default sort is still priority', byPriority[0].title === 'step two');
+
+  await s.call('task_update', { id: two.id, depends_on: [one.id] });
+  ok('a dependent task auto-blocks', (await s.call('task_get', { id: two.id })).status === 'blocked');
+  await s.call('task_update', { id: one.id, status: 'done' });
+  ok('finishing the blocker releases it', (await s.call('task_get', { id: two.id })).status !== 'blocked');
+  await s.call('task_update', { id: one.id, status: 'todo' });
+  ok('reopening the blocker blocks it again', (await s.call('task_get', { id: two.id })).status === 'blocked');
+  await s.call('task_update', { id: two.id, depends_on: [] });
+  ok('clearing the dependency releases it', (await s.call('task_get', { id: two.id })).status !== 'blocked');
+
+  await s.call('task_update', { id: two.id, depends_on: [one.id] });
+  const cycle = await s.call('task_update', { id: one.id, depends_on: [two.id] });
+  ok('a circular task dependency is refused', /circular/.test(cycle.__error ?? ''), cycle.__error);
+  await s.call('task_update', { id: two.id, depends_on: [] });
+}
+
 section('getting old work out of the way');
 {
   const shelf = await s.call('epic_create', { project_id: projectId, name: 'Finished work', status: 'completed' });
@@ -214,7 +241,7 @@ section('tool surface');
 const full = mcp();
 await full.ready;
 const fullTools = (await full.rpc('tools/list', {})).result.tools;
-ok('every tool is listed by default', fullTools.length === 38, String(fullTools.length));
+ok('every tool is listed by default', fullTools.length === 39, String(fullTools.length));
 ok('every tool carries safety annotations', fullTools.every((t) => typeof t.annotations?.readOnlyHint === 'boolean'));
 ok('the tool list stays inside its context budget', JSON.stringify(fullTools).length < 28000, String(JSON.stringify(fullTools).length));
 ok('and tool descriptions have not crept', JSON.stringify(fullTools).length / fullTools.length < 750,

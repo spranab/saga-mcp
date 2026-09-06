@@ -158,6 +158,20 @@ test('a same-origin write is allowed', async () => {
   assert.equal(res.status, 200);
 });
 
+test('every write the UI issues is actually whitelisted', async () => {
+  // task_reorder shipped in the page before it was added to the server's
+  // whitelist, so drag-to-reorder silently did nothing.
+  const { PAGE } = await import('../dist/web/ui.js');
+  const used = [...PAGE.matchAll(/act\('([a-z_]+)'/g)].map((m) => m[1]);
+  assert.ok(used.length > 5, 'expected the page to call several tools');
+  for (const tool of [...new Set(used)]) {
+    const res = await post(editable.base, { tool, args: {} });
+    const body = await res.json();
+    assert.ok(!/Unknown or disallowed/.test(body.error ?? ''),
+      `the page calls ${tool}, but the server refuses it as not whitelisted`);
+  }
+});
+
 test('only whitelisted tools can be invoked', async () => {
   for (const tool of ['tracker_import', 'constructor', '__proto__', 'toString', '']) {
     const res = await post(editable.base, { tool, args: {} });

@@ -6,12 +6,12 @@
     "url": "https://github.com/spranab/saga-mcp",
     "source": "github"
   },
-  "version": "1.10.0",
+  "version": "1.11.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "saga-mcp",
-      "version": "1.10.0",
+      "version": "1.11.0",
       "transport": {
         "type": "stdio"
       },

@@ -12,7 +12,7 @@ lived in the context window, or in a `TODO.md` nobody updates.
 
 saga-mcp gives the agent a real tracker instead: a SQLite file in your project
 holding projects, epics, tasks, subtasks, dependencies, comments, notes and
-decisions, exposed as 38 MCP tools. The agent writes to it as it works and
+decisions, exposed as 39 MCP tools. The agent writes to it as it works and
 reads the dashboard when it comes back. No accounts, no external service, no
 network calls — the database is a file you own.
 
@@ -76,7 +76,7 @@ recent activity, notes.
 - **Activity log**: Every mutation is automatically tracked with old/new values
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **38 focused tools**: With MCP safety annotations on every tool
+- **39 focused tools**: With MCP safety annotations on every tool
 - **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
 - **Auto time tracking**: Hours computed automatically from activity log
@@ -192,6 +192,7 @@ import/export, session diffs and the rest discoverable.
 | `task_get` | Get task with subtasks, notes, comments, and dependencies | `readOnly: true` |
 | `task_update` | Update task (auto-logs, auto-blocks/unblocks) | `readOnly: false`, `idempotent: true` |
 | `task_lock_description` | Lock/unlock a description so agents can't rewrite it | `readOnly: false`, `idempotent: true` |
+| `task_reorder` | Set the order of an epic's tasks | `readOnly: false`, `idempotent: true` |
 | `task_delete` | Remove a `todo` task (soft delete, restorable) | `readOnly: false`, `idempotent: true` |
 | `task_restore` | Restore a removed task | `readOnly: false`, `idempotent: true` |
 | `task_batch_update` | Update multiple tasks at once | `readOnly: false`, `idempotent: true` |
@@ -380,6 +381,31 @@ Coercion stops where intent becomes ambiguous. A comma inside a *title* is left 
 `"Design the API, then implement it"` is one subtask, not two — while a comma in a tag or an id
 list is a separator, because neither can contain one. Anything genuinely unusable is refused with
 a message naming what arrived and what was wanted, rather than a leaked `ids.map is not a function`.
+
+## Ordering and dependencies
+
+`task_list` sorts by priority by default, which is usually what an agent wants but ignores any
+order you arranged by hand. `sort_by: "manual"` reads back the order `task_reorder` set:
+
+```
+task_reorder({ epic_id: 2, ordered_ids: [8, 5, 6] })
+task_list({ epic_id: 2, sort_by: "manual" })     # 8, 5, 6
+```
+
+Anything omitted from `ordered_ids` keeps its relative position at the end. `sort_order` runs
+ascending — lower sorts first — and in the web UI you can drag tasks into place inside an epic.
+
+Task dependencies auto-block and auto-unblock:
+
+```
+task_update({ id: 9, depends_on: [8] })   # 9 becomes blocked while 8 is open
+```
+
+Re-evaluation runs whenever a blocker's *doneness* changes in either direction, so reopening a
+finished blocker blocks its dependents again, and clearing the last dependency releases them.
+Circular dependencies are refused with the loop named, for tasks and subtasks alike — anything
+in a cycle would be blocked forever. The web UI shows a banner at the top of a blocked task
+naming what it waits on, with a picker to add or remove dependencies.
 
 ## Getting old work out of the way
 

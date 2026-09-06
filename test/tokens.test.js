@@ -71,7 +71,7 @@ test('slimming measurably shrinks the payload', () => {
 
 test('every tool definition carries safety annotations', async () => {
   const defs = await loadDefinitions();
-  assert.equal(defs.length, 38);
+  assert.equal(defs.length, 39);
   for (const def of defs) {
     assert.ok(def.annotations, `${def.name} is missing annotations`);
     assert.equal(typeof def.annotations.readOnlyHint, 'boolean', `${def.name} readOnlyHint`);
@@ -85,7 +85,7 @@ test('read-only tools are annotated as such', async () => {
   for (const name of ['task_get', 'task_list', 'comment_list', 'tracker_dashboard', 'epic_list']) {
     assert.equal(byName[name].annotations.readOnlyHint, true, `${name} should be readOnly`);
   }
-  for (const name of ['task_create', 'comment_delete', 'comment_restore', 'epic_update', 'task_lock_description', 'subtask_reorder', 'epic_archive', 'task_delete', 'task_restore']) {
+  for (const name of ['task_create', 'comment_delete', 'comment_restore', 'epic_update', 'task_lock_description', 'subtask_reorder', 'epic_archive', 'task_delete', 'task_restore', 'task_reorder']) {
     assert.equal(byName[name].annotations.readOnlyHint, false, `${name} should not be readOnly`);
   }
 });

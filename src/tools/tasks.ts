@@ -3,13 +3,14 @@ import type Database from 'better-sqlite3';
 import { getDb } from '../db.js';
 import { buildUpdate, addTagFilter } from '../helpers/sql-builder.js';
 import { logActivity, logEntityUpdate } from '../helpers/activity-logger.js';
-import { slimListRow, LIST_DESCRIPTION_CHARS } from '../helpers/slim.js';
+import { slimListRow, slimList, LIST_DESCRIPTION_CHARS } from '../helpers/slim.js';
 import { resolveProjectId, taskScopeClause, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
 import { resolveBranch } from '../helpers/git.js';
 import { withDependencies } from './subtasks.js';
 import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
 import { asIdList, tagsColumn } from '../helpers/coerce.js';
 import { liveTaskClause, wantsHidden, INCLUDE_ARCHIVED_SCHEMA, INCLUDE_DELETED_TASKS_SCHEMA } from '../helpers/visibility.js';
+import { assertAcyclic, taskEdges } from '../helpers/dependency-graph.js';
 import type { ToolHandler } from '../types.js';
 
 export const definitions: Tool[] = [
@@ -78,12 +79,26 @@ export const definitions: Tool[] = [
         include_deleted: INCLUDE_DELETED_TASKS_SCHEMA,
         sort_by: {
           type: 'string',
-          enum: ['priority', 'created', 'due_date', 'status'],
+          enum: ['priority', 'created', 'due_date', 'status', 'manual'],
           default: 'priority',
-          description: 'Sort order: priority (critical first), created (newest first), due_date (earliest first), status (actionable first)',
+          description: 'priority (critical first), created (newest first), due_date (earliest first), status (actionable first), manual (the order set by task_reorder)',
         },
         limit: { type: 'integer', default: 50, description: 'Max results' },
       },
+    },
+  },
+  {
+    name: 'task_reorder',
+    description:
+      "Set the order of an epic's tasks. Pass task IDs in the order you want; any omitted keep their relative order at the end. Read the result back with task_list sort_by=\"manual\" — the default sort is by priority, which ignores this.",
+    annotations: { title: 'Reorder Tasks', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        epic_id: { type: 'integer', description: 'Parent epic' },
+        ordered_ids: { type: 'array', items: { type: 'integer' }, description: 'Task IDs, in order' },
+      },
+      required: ['epic_id', 'ordered_ids'],
     },
   },
   {
@@ -167,7 +182,7 @@ export const definitions: Tool[] = [
           required: ['file'],
         },
         depends_on: { type: 'array', items: { type: 'integer' }, description: 'Task IDs this task depends on (replaces existing)' },
-        sort_order: { type: 'integer' },
+        sort_order: { type: 'integer', description: 'Manual position within the epic; lower sorts first. Use task_reorder instead of setting this by hand.' },
         tags: { type: 'array', items: { type: 'string' } },
         force: FORCE_SCHEMA,
       },
@@ -179,12 +194,14 @@ export const definitions: Tool[] = [
 // --- Dependency helpers ---
 
 function setDependencies(db: Database.Database, taskId: number, dependsOn: number[]): void {
+  const clean = [...new Set(dependsOn)].filter((depId) => depId !== taskId);
+  // A cycle here is worse than a bad edge: auto-blocking would put every task
+  // in the loop into `blocked` with nothing able to release them.
+  assertAcyclic(taskEdges(db), taskId, clean, 'task');
+
   db.prepare('DELETE FROM task_dependencies WHERE task_id = ?').run(taskId);
   const insert = db.prepare('INSERT INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)');
-  for (const depId of dependsOn) {
-    if (depId === taskId) continue; // prevent self-dependency
-    insert.run(taskId, depId);
-  }
+  for (const depId of clean) insert.run(taskId, depId);
 }
 
 function getUnmetDependencies(db: Database.Database, taskId: number): Array<{ id: number; title: string; status: string }> {
@@ -195,12 +212,24 @@ function getUnmetDependencies(db: Database.Database, taskId: number): Array<{ id
   ).all(taskId) as Array<{ id: number; title: string; status: string }>;
 }
 
-function evaluateAndUpdateDependencies(db: Database.Database, taskId: number): void {
+/**
+ * `dependenciesChanged` marks the case where this task's own dependency list
+ * was just edited. It matters when the list is now empty: a task holding no
+ * dependencies at all is normally left alone, because `blocked` is also a
+ * status a person can set by hand and clearing it silently would be wrong.
+ * But clearing the last dependency off a task the system had auto-blocked used
+ * to strand it in `blocked` with nothing left that could ever release it.
+ */
+function evaluateAndUpdateDependencies(
+  db: Database.Database,
+  taskId: number,
+  dependenciesChanged = false
+): void {
   const task = db.prepare('SELECT id, status, title FROM tasks WHERE id = ?').get(taskId) as { id: number; status: string; title: string } | undefined;
   if (!task) return;
 
   const deps = db.prepare('SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?').all(taskId) as Array<{ depends_on_task_id: number }>;
-  if (deps.length === 0) return;
+  if (deps.length === 0 && !dependenciesChanged) return;
 
   const unmet = getUnmetDependencies(db, taskId);
 
@@ -275,6 +304,10 @@ function getTaskOrderClause(sortBy: string): string {
       return `t.due_date IS NULL, t.due_date ASC, ${PRIORITY_ORDER}, t.created_at`;
     case 'created':
       return `t.created_at DESC`;
+    case 'manual':
+      // The order a human or agent actually arranged, which every other mode
+      // treats as a tiebreaker at best.
+      return `t.sort_order, t.created_at`;
     default:
       return `${PRIORITY_ORDER}, ${STATUS_ORDER}, t.sort_order, t.created_at`;
   }
@@ -461,7 +494,7 @@ function handleTaskUpdate(args: Record<string, unknown>) {
     logActivity(db, 'task', id, 'updated', 'depends_on', null,
       dependsOn.length > 0 ? dependsOn.join(',') : '(none)',
       `Task '${newRow.title}' dependencies updated: [${dependsOn.join(', ')}]`);
-    evaluateAndUpdateDependencies(db, id);
+    evaluateAndUpdateDependencies(db, id, true);
     // Re-fetch in case status changed
     newRow = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown>;
   }
@@ -489,8 +522,14 @@ function handleTaskUpdate(args: Record<string, unknown>) {
     }
   }
 
-  // Re-evaluate downstream tasks when this task is marked done
-  if (statusChanged && args.status === 'done') {
+  // Re-evaluate dependents whenever this task's *doneness* changes, in either
+  // direction. Only running this on the way into done meant reopening a
+  // finished blocker left everything waiting on it sitting in todo with an
+  // unmet dependency — the same class of hole as a dependency that never
+  // blocked at all.
+  const wasDone = oldRow.status === 'done';
+  const isDone = (newRow.status as string) === 'done';
+  if (wasDone !== isDone) {
     reevaluateDownstream(db, id);
   }
 
@@ -525,6 +564,40 @@ function handleTaskLockDescription(args: Record<string, unknown>) {
       : `Task ${id}'s description is unlocked.`,
     task: row,
   };
+}
+
+function handleTaskReorder(args: Record<string, unknown>) {
+  const db = getDb();
+  const epicId = args.epic_id as number;
+  const orderedIds = asIdList(args.ordered_ids ?? [], 'ordered_ids');
+
+  const siblings = db
+    .prepare('SELECT id FROM tasks WHERE epic_id = ? AND is_deleted = 0 ORDER BY sort_order, created_at')
+    .all(epicId) as Array<{ id: number }>;
+  if (siblings.length === 0) throw new Error(`Epic ${epicId} has no tasks`);
+
+  const known = new Set(siblings.map((row) => row.id));
+  const unknown = orderedIds.filter((taskId) => !known.has(taskId));
+  if (unknown.length > 0) {
+    throw new Error(`Task(s) ${unknown.join(', ')} do not belong to epic ${epicId}`);
+  }
+
+  // Anything left out keeps its relative order, after the listed ones.
+  const seen = new Set(orderedIds);
+  const finalOrder = [...orderedIds, ...siblings.map((row) => row.id).filter((rowId) => !seen.has(rowId))];
+
+  const stmt = db.prepare("UPDATE tasks SET sort_order = ?, updated_at = datetime('now') WHERE id = ?");
+  db.transaction(() => {
+    finalOrder.forEach((taskId, index) => stmt.run(index + 1, taskId));
+  })();
+
+  logActivity(db, 'epic', epicId, 'updated', 'sort_order', null, finalOrder.join(','),
+    `Tasks of epic ${epicId} reordered`);
+
+  return slimList(
+    db.prepare('SELECT * FROM tasks WHERE epic_id = ? AND is_deleted = 0 ORDER BY sort_order, created_at')
+      .all(epicId) as Array<Record<string, unknown>>
+  );
 }
 
 function handleTaskDelete(args: Record<string, unknown>) {
@@ -598,6 +671,7 @@ function handleTaskRestore(args: Record<string, unknown>) {
 
 export const handlers: Record<string, ToolHandler> = {
   task_create: handleTaskCreate,
+  task_reorder: handleTaskReorder,
   task_delete: handleTaskDelete,
   task_restore: handleTaskRestore,
   task_lock_description: handleTaskLockDescription,
