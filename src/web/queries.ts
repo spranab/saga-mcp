@@ -120,7 +120,12 @@ export function listTasks(db: Database.Database, projectId: number, includeArchi
       `SELECT t.*, e.name as epic_name, e.branch as epic_branch,
         (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id) as subtask_count,
         (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id AND s.status = 'done') as subtask_done,
-        (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id AND c.is_deleted = 0) as comment_count
+        (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id AND c.is_deleted = 0) as comment_count,
+        -- Names of the unfinished blockers, so a row in the tree can say what it
+        -- is waiting on without a second request per task.
+        (SELECT group_concat(b.title, ', ') FROM task_dependencies d
+           JOIN tasks b ON b.id = d.depends_on_task_id
+          WHERE d.task_id = t.id AND b.status != 'done' AND b.is_deleted = 0) as blocked_by
        FROM tasks t JOIN epics e ON e.id = t.epic_id
        WHERE e.project_id = ?${hide}
        ORDER BY e.sort_order, e.created_at, t.sort_order, t.created_at`

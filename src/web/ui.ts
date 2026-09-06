@@ -29,6 +29,8 @@ export const PAGE: string = `<!doctype html>
   --blocked: #d64545;
   --done: #2e9e5b;
   --critical: #d64545;
+  --critical-fill: #c62f2f;
+  --critical-ink: #ffffff;
   --high: #d97706;
   --medium: #6b727c;
   --low: #9aa2ad;
@@ -49,6 +51,8 @@ export const PAGE: string = `<!doctype html>
     --blocked: #f07171;
     --done: #4ec27f;
     --critical: #f07171;
+    --critical-fill: #f07171;
+    --critical-ink: #201a1a;
     --high: #e0a34a;
     --medium: #929aa5;
     --low: #6d7580;
@@ -141,6 +145,17 @@ h2:first-child { margin-top: 0; }
 .st-cancelled, .st-archived { color: var(--muted); }
 .st-on_hold { color: var(--high); }
 .pr-critical { color: var(--critical); }
+/* --critical and --blocked are the same red, which made a blocked status dot
+   and a critical priority pill read as the same signal in a dense list (#37).
+   They are now separated by FORM, not hue: critical is the only filled pill on
+   the page, and a blocked row is marked with a stop sign instead of a dot. Form
+   survives greyscale and colour blindness in a way a second red never would. */
+.pill.pr-critical {
+  background: var(--critical-fill); border-color: var(--critical-fill);
+  color: var(--critical-ink); font-weight: 600;
+}
+.stopsign { font-size: 12px; line-height: 1; flex: none; cursor: help; }
+.pill.blockedpill { color: var(--blocked); border-color: var(--blocked); }
 .pr-high { color: var(--high); }
 .pr-medium { color: var(--medium); }
 .pr-low { color: var(--low); }
@@ -837,12 +852,26 @@ function tile(n, l) {
   return '<div class="tile"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>';
 }
 
+/**
+ * A blocked task is marked with a stop sign rather than a coloured dot.
+ *
+ * The dot alone carried the whole signal, in a red that --critical also used,
+ * so a blocked low-priority task and a critical unblocked one looked alike at a
+ * glance (#37, reported by @rusak47). A glyph cannot be confused with a pill,
+ * and the tooltip names the blockers so the tree answers "why" without opening
+ * the task.
+ */
+function blockedMark(t) {
+  var waiting = t.blocked_by ? 'Blocked by ' + t.blocked_by : 'Blocked';
+  return '<span class="stopsign" title="' + esc(waiting) + '">\u26D4</span>';
+}
+
 function taskLine(t, extra, opts) {
   var drag = opts && opts.draggable && canEdit();
   return '<div class="tline" data-task="' + t.id + '"' +
     (drag ? ' data-task-row="' + t.id + '" data-epic="' + t.epic_id + '" draggable="true"' : '') + '>' +
     (drag ? '<span class="thandle" title="Drag to reorder">⠿</span>' : '') +
-    '<span class="dot st-' + esc(t.status) + '"></span>' +
+    (t.status === 'blocked' ? blockedMark(t) : '<span class="dot st-' + esc(t.status) + '"></span>') +
     '<span class="grow ellip">' + esc(t.title) + '</span>' +
     (extra ? '<span class="muted" style="font-size:12px">' + extra + '</span>' : '') +
     (t.epic_name ? '<span class="muted ellip" style="font-size:12px;max-width:180px">' + esc(t.epic_name) + '</span>' : '') +
@@ -905,6 +934,8 @@ function viewEpics() {
         '<span class="muted">' + (open ? '▾' : '▸') + '</span>' +
         '<span class="grow ellip"><strong>' + esc(e.name) + '</strong></span></span>' +
       (e.branch ? '<span class="pill pr-low">⎇ ' + esc(e.branch) + '</span>' : '') +
+      (e.blocked_count ? '<span class="pill blockedpill" title="' + e.blocked_count +
+        ' task(s) in this epic are blocked">\u26D4 ' + e.blocked_count + '</span>' : '') +
       pill('pr', e.priority) + pill('st', e.status) +
       '<span class="muted" style="font-size:12px">' + (e.done_count || 0) + '/' + (e.task_count || 0) + '</span>' +
       (canEdit() ? '<button class="btn" data-edit-epic="' + e.id + '">Edit</button>' +

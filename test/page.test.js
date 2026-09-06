@@ -378,3 +378,130 @@ test('every place prose is shown renders it as markdown', () => {
   assert.ok(!/esc\(n\.content\)/.test(script), 'notes still raw-escaped');
   assert.ok((script.match(/md-body/g) || []).length >= 6, 'expected markdown at every prose site');
 });
+
+/* ---------- blocked visibility in the epic tree (#37) ---------- */
+
+/**
+ * Reported by @rusak47 as a follow-up on #37: the task drawer says clearly when
+ * a task is blocked, but the epic tree did not, and the colour it used was
+ * ambiguous against a critical-priority task.
+ *
+ * It was worse than ambiguous. `--blocked` and `--critical` are the SAME hex in
+ * both themes, so a blocked row and a critical row were painted the identical
+ * red and told apart only by dot-versus-pill. These tests pin the fix: the two
+ * must differ by form, which survives greyscale and colour blindness.
+ */
+const BLOCKED_TASK = {
+  id: 7, epic_id: 2, title: 'Publish to the registry', status: 'blocked',
+  priority: 'low', blocked_by: 'Sign the artifacts',
+};
+
+test('a blocked row in the tree is marked with a stop sign', () => {
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.taskLine(BLOCKED_TASK, '', {});
+  assert.match(html, /class="stopsign"/);
+  assert.ok(html.includes('⛔'), 'the stop sign glyph itself should be in the markup');
+});
+
+test('the stop sign replaces the status dot rather than joining it', () => {
+  // Two markers for one fact is noise; the glyph carries the status.
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.taskLine(BLOCKED_TASK, '', {});
+  assert.ok(!/class="dot /.test(html), 'a blocked row should not also render a dot: ' + html);
+});
+
+test('the stop sign names what the task is waiting on', () => {
+  // The tree can answer "why" without the user opening the task.
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.taskLine(BLOCKED_TASK, '', {});
+  assert.match(html, /title="Blocked by Sign the artifacts"/);
+});
+
+test('a blocked task with no named blockers still gets a stop sign', () => {
+  // blocked_by is absent when the status was set by hand rather than derived.
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.taskLine({ id: 8, epic_id: 2, title: 'Manual hold', status: 'blocked', priority: 'medium' }, '', {});
+  assert.match(html, /class="stopsign"/);
+  assert.match(html, /title="Blocked"/);
+});
+
+test('an unblocked row is untouched', () => {
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.taskLine({ id: 9, epic_id: 2, title: 'Announce', status: 'todo', priority: 'low' }, '', {});
+  assert.match(html, /class="dot st-todo"/);
+  assert.ok(!/stopsign/.test(html));
+});
+
+test('blocked and critical are not distinguished by colour alone', () => {
+  // The heart of the report. If the two tokens ever resolve to the same value
+  // again -- they do today, deliberately, since both mean "red alert" -- then a
+  // non-colour differentiator MUST exist, or the two states look identical.
+  const paletteFor = (token) => [...css.matchAll(new RegExp('--' + token + ':\\s*([^;]+);', 'g'))]
+    .map((m) => m[1].trim());
+  const blocked = paletteFor('blocked');
+  const critical = paletteFor('critical');
+  assert.ok(blocked.length >= 2 && critical.length >= 2, 'both tokens should be themed light and dark');
+
+  const sameHue = blocked.some((b) => critical.includes(b));
+  if (sameHue) {
+    // form must carry the distinction
+    assert.match(css, /\.stopsign \{/, 'blocked needs a non-colour marker when it shares critical\'s red');
+    const backgrounds = declarationsOf('background').filter((d) => d.sel === '.pill.pr-critical');
+    assert.equal(backgrounds.length, 1,
+      'critical needs a fill so it cannot be mistaken for a blocked marker of the same hue');
+    assert.equal(winner(backgrounds).value, 'var(--critical-fill)');
+  }
+});
+
+test('the filled critical pill is not overridden by the base pill rule', () => {
+  // `.pill` sets no background today, but adding one later would silently undo
+  // the fix, so resolve the cascade rather than trusting source order.
+  const candidates = declarationsOf('background').filter(
+    (d) => d.sel === '.pill' || d.sel === '.pill.pr-critical'
+  );
+  assert.ok(candidates.length > 0);
+  assert.equal(winner(candidates).sel, '.pill.pr-critical');
+});
+
+/** WCAG relative luminance for a #rrggbb colour. */
+function luminance(hex) {
+  const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+test('the filled critical pill meets WCAG AA in both themes', () => {
+  // The fill was introduced to separate critical from blocked by form rather
+  // than hue, which is an accessibility argument -- so it should be measured,
+  // not asserted. The pill is 11px, i.e. normal text, so the bar is 4.5:1.
+  //
+  // This is why --critical-fill exists as its own token: white on the plain
+  // --critical (#d64545) is 4.38:1, which fails. The fill is darkened just far
+  // enough to pass while staying the same red family.
+  const token = (name) => [...css.matchAll(new RegExp('--' + name + ':\\s*(#[0-9a-f]{6});', 'gi'))]
+    .map((m) => m[1]);
+  const fills = token('critical-fill');
+  const inks = token('critical-ink');
+  assert.equal(fills.length, 2, 'light and dark fills');
+  assert.equal(inks.length, 2, 'light and dark inks');
+
+  for (let i = 0; i < 2; i++) {
+    const ratio = contrast(fills[i], inks[i]);
+    assert.ok(ratio >= 4.5,
+      `${inks[i]} on ${fills[i]} is ${ratio.toFixed(2)}:1, below the 4.5:1 needed for 11px text`);
+  }
+});
+
+test('the critical pill keeps readable text on its fill in both themes', () => {
+  // A white-on-light-red pill would be unreadable in dark mode, where
+  // --critical lightens. The ink is themed alongside it.
+  assert.match(css, /\.pill\.pr-critical \{[^}]*color: var\(--critical-ink\)/);
+  const inks = [...css.matchAll(/--critical-ink:\s*([^;]+);/g)].map((m) => m[1].trim());
+  assert.equal(inks.length, 2, 'critical ink should be defined for light and dark');
+  assert.notEqual(inks[0], inks[1], 'the two themes need different ink or one of them is unreadable');
+});
