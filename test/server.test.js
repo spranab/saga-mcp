@@ -61,6 +61,72 @@ async function server(env) {
 }
 after(() => servers.forEach((s) => s.stop()));
 
+/**
+ * Protocol version negotiation.
+ *
+ * Issue #36 asks what happens when a client speaks a protocol revision newer
+ * than the one saga was built against. The answer should be: the connection
+ * still works, at the newest revision both sides know — never an error and
+ * never silence, because a client that cannot initialize cannot tell the user
+ * why.
+ *
+ * That behaviour comes from the SDK, which makes it exactly the kind of thing
+ * a dependency bump can change underneath us without any of our own code
+ * moving. Hence a test: it is a contract with our clients, not an SDK detail.
+ */
+const KNOWN_REVISIONS = ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'];
+
+test('every protocol revision saga supports is echoed back unchanged', async () => {
+  for (const revision of KNOWN_REVISIONS) {
+    const s = startServer();
+    servers.push(s);
+    const res = await s.send('initialize', {
+      protocolVersion: revision, capabilities: {}, clientInfo: { name: 'test', version: '1' },
+    });
+    assert.equal(res.result.protocolVersion, revision, `asked for ${revision}`);
+  }
+});
+
+test('a client from the future is downgraded, not refused', async () => {
+  // 2026-07-28 is unreleased upstream (#36). A client that speaks it should
+  // still get a working session rather than a dead one.
+  const s = startServer();
+  servers.push(s);
+  const res = await s.send('initialize', {
+    protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'future', version: '1' },
+  });
+  assert.ok(!res.error, `initialize failed: ${JSON.stringify(res.error)}`);
+  assert.equal(res.result.protocolVersion, KNOWN_REVISIONS[KNOWN_REVISIONS.length - 1]);
+
+  // And the session is genuinely usable, not merely established.
+  const tools = await s.send('tools/list', {});
+  assert.equal(tools.result.tools.length, 40);
+});
+
+test('a nonsense protocol version still yields a usable session', async () => {
+  const s = startServer();
+  servers.push(s);
+  const res = await s.send('initialize', {
+    protocolVersion: 'banana', capabilities: {}, clientInfo: { name: 'broken', version: '1' },
+  });
+  assert.ok(!res.error);
+  assert.equal(res.result.protocolVersion, KNOWN_REVISIONS[KNOWN_REVISIONS.length - 1]);
+});
+
+test('the server names itself and its version in the handshake', async () => {
+  const s = startServer();
+  servers.push(s);
+  const res = await s.send('initialize', {
+    protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' },
+  });
+  const { readFileSync } = await import('node:fs');
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.equal(res.result.serverInfo.version, pkg.version,
+    'the handshake version should track package.json, so clients can report it accurately');
+  assert.equal(res.result.serverInfo.name, pkg.name,
+    'the handshake name should be the name people install, not an internal one');
+});
+
 test('tools/list returns every tool by default', async () => {
   const s = await server();
   const res = await s.send('tools/list', {});

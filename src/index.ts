@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -83,8 +84,28 @@ function listedTools(): Tool[] {
   return ALL_TOOLS.filter((t) => CORE_TOOLS.has(t.name));
 }
 
+/**
+ * The version reported in the MCP handshake.
+ *
+ * This was hardcoded to '1.0.0' and stayed there through every release, so
+ * every client that logs or displays a server version has been reporting a
+ * number that was wrong from v1.0.1 onward — and it is the number a user would
+ * quote in a bug report. Reading package.json keeps the two from drifting
+ * again; test/server.test.js asserts they match.
+ */
+function serverVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    return require('../package.json').version as string;
+  } catch {
+    // Never let a missing package.json stop the server from starting: an
+    // unknown version is a cosmetic problem, a failed handshake is not.
+    return '0.0.0';
+  }
+}
+
 const server = new Server(
-  { name: 'tracker', version: '1.0.0' },
+  { name: 'saga-mcp', version: serverVersion() },
   { capabilities: { tools: {} } }
 );
 

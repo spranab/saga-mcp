@@ -83,17 +83,20 @@ function mcp(env = {}) {
     const my = ++id; pending.set(my, res);
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: my, method, params }) + '\n');
   });
+  let handshake = null;
   const ready = (async () => {
-    await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
+    const r = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
+    handshake = r.result;
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   })();
+  const info = () => handshake;
   const call = async (name, args = {}) => {
     const r = await rpc('tools/call', { name, arguments: args });
     const text = r.result.content[0].text;
     if (r.result.isError) return { __error: text };
     try { return JSON.parse(text); } catch { return { __raw: text }; }
   };
-  return { rpc, call, ready, stderr: () => stderr, stop: () => child.kill() };
+  return { info, rpc, call, ready, stderr: () => stderr, stop: () => child.kill() };
 }
 
 const s = mcp();
@@ -255,6 +258,16 @@ badScope.stop();
 section('tool surface');
 const full = mcp();
 await full.ready;
+// The handshake reports a version read from package.json at runtime. That path
+// only resolves once the package is installed, which is what this gate exercises;
+// a unit test running from the source tree cannot catch it breaking.
+{
+  const info = full.info();
+  ok('the handshake names the installed package', info.serverInfo.name === pkg.name, info.serverInfo.name);
+  ok('and reports the version actually installed', info.serverInfo.version === pkg.version,
+     info.serverInfo.version + ' vs ' + pkg.version);
+}
+
 const fullTools = (await full.rpc('tools/list', {})).result.tools;
 ok('every tool is listed by default', fullTools.length === 40, String(fullTools.length));
 ok('every tool carries safety annotations', fullTools.every((t) => typeof t.annotations?.readOnlyHint === 'boolean'));
