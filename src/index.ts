@@ -14,6 +14,7 @@ import { definitions as subtaskDefs, handlers as subtaskHandlers } from './tools
 import { definitions as noteDefs, handlers as noteHandlers } from './tools/notes.js';
 import { definitions as dashboardDefs, handlers as dashboardHandlers } from './tools/dashboard.js';
 import { definitions as searchDefs, handlers as searchHandlers } from './tools/search.js';
+import { definitions as nextDefs, handlers as nextHandlers } from './tools/next.js';
 import { definitions as activityDefs, handlers as activityHandlers } from './tools/activity.js';
 import { definitions as commentDefs, handlers as commentHandlers } from './tools/comments.js';
 import { definitions as templateDefs, handlers as templateHandlers } from './tools/templates.js';
@@ -30,6 +31,7 @@ const ALL_TOOLS: Tool[] = [
   ...templateDefs,
   ...dashboardDefs,
   ...searchDefs,
+  ...nextDefs,
   ...activityDefs,
   ...exportImportDefs,
 ];
@@ -44,6 +46,7 @@ const ALL_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> =
   ...templateHandlers,
   ...dashboardHandlers,
   ...searchHandlers,
+  ...nextHandlers,
   ...activityHandlers,
   ...exportImportHandlers,
 };
@@ -57,6 +60,7 @@ const ALL_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> =
 const CORE_TOOLS = new Set([
   'tracker_init',
   'tracker_dashboard',
+  'tracker_next',
   'project_list',
   'epic_create',
   'epic_list',

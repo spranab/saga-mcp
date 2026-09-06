@@ -64,7 +64,7 @@ after(() => servers.forEach((s) => s.stop()));
 test('tools/list returns every tool by default', async () => {
   const s = await server();
   const res = await s.send('tools/list', {});
-  assert.equal(res.result.tools.length, 39);
+  assert.equal(res.result.tools.length, 40);
 });
 
 test('SAGA_TOOLS=core lists only the core surface, and it is much smaller', async () => {
@@ -73,7 +73,7 @@ test('SAGA_TOOLS=core lists only the core surface, and it is much smaller', asyn
   const fullTools = (await full.send('tools/list', {})).result.tools;
   const coreTools = (await core.send('tools/list', {})).result.tools;
 
-  assert.equal(coreTools.length, 12);
+  assert.equal(coreTools.length, 13);
   assert.ok(coreTools.every((t) => fullTools.some((f) => f.name === t.name)), 'core must be a subset');
   for (const required of ['tracker_dashboard', 'task_create', 'task_list', 'task_get', 'task_update']) {
     assert.ok(coreTools.some((t) => t.name === required), `core is missing ${required}`);
@@ -93,7 +93,7 @@ test('a tool left off the core list is still callable by name', async () => {
 test('an unrecognised SAGA_TOOLS value warns and falls back to the full list', async () => {
   const s = await server({ SAGA_TOOLS: 'nonsense' });
   const res = await s.send('tools/list', {});
-  assert.equal(res.result.tools.length, 39);
+  assert.equal(res.result.tools.length, 40);
   assert.match(s.stderr(), /Unknown SAGA_TOOLS/);
 });
 

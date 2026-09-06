@@ -14,7 +14,7 @@ export const definitions: Tool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Template name (must be unique)' },
-        description: { type: 'string', description: 'Template description' },
+        description: { type: 'string' },
         tasks: {
           type: 'array',
           description: 'Task definitions. Use {variable} for placeholders.',

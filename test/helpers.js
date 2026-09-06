@@ -24,23 +24,23 @@ export function tempDbPath(name = 'saga-test') {
 export async function loadTools(dbPath) {
   process.env.DB_PATH = dbPath;
   const load = (m) => import('../dist/tools/' + m + '.js');
-  const [projects, epics, tasks, subtasks, notes, comments, dashboard, activity, templates, search, exportImport] =
+  const [projects, epics, tasks, subtasks, notes, comments, dashboard, activity, templates, search, exportImport, next] =
     await Promise.all([
       load('projects'), load('epics'), load('tasks'), load('subtasks'), load('notes'),
       load('comments'), load('dashboard'), load('activity'), load('templates'),
-      load('search'), load('export-import'),
+      load('search'), load('export-import'), load('next'), load('next'),
     ]);
   return {
     ...projects.handlers, ...epics.handlers, ...tasks.handlers, ...subtasks.handlers,
     ...notes.handlers, ...comments.handlers, ...dashboard.handlers, ...activity.handlers,
-    ...templates.handlers, ...search.handlers, ...exportImport.handlers,
+    ...templates.handlers, ...search.handlers, ...exportImport.handlers, ...next.handlers,
   };
 }
 
 /** Every tool definition the server knows about. */
 export async function loadDefinitions() {
   const mods = ['projects', 'epics', 'tasks', 'subtasks', 'notes', 'comments',
-                'templates', 'dashboard', 'search', 'activity', 'export-import'];
+                'templates', 'dashboard', 'search', 'activity', 'export-import', 'next'];
   const out = [];
   for (const m of mods) out.push(...(await import('../dist/tools/' + m + '.js')).definitions);
   return out;
