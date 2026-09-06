@@ -266,3 +266,115 @@ test('ordinary text inputs in a field still fill the row', () => {
   assert.ok(rule, 'the .field input width rule should still exist');
   assert.equal(rule.value, '100%');
 });
+
+/* ---------- markdown (#38) ---------- */
+
+/** The renderer as it actually ships, pulled out of the page and executed. */
+function renderer() {
+  const ctx = {
+    console, JSON, Object, Array, Number, String, Boolean, Date, Math, Set, Map,
+    RegExp, Error, isNaN, encodeURIComponent, parseInt, parseFloat,
+    setTimeout, clearTimeout,
+    document: { getElementById: () => element(), querySelector: () => null,
+                querySelectorAll: () => [], createElement: () => element(),
+                addEventListener() {}, body: element() },
+    window: { addEventListener() {}, location: { hash: '' } },
+    location: { hash: '' }, history: { replaceState() {} },
+    fetch: () => Promise.reject(new Error('no network in this test')),
+  };
+  ctx.globalThis = ctx;
+  createContext(ctx);
+  runInContext(script, ctx);
+  return ctx.md;
+}
+const md = renderer();
+const NL = String.fromCharCode(10);
+
+/** Every tag the renderer is permitted to emit. */
+const ALLOWED_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del',
+  'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'hr', 'table', 'thead', 'tbody', 'tr', 'th',
+  'td', 'div', 'a', 'input', 'br']);
+
+test('markdown renders the constructs a report actually uses', () => {
+  assert.match(md('## Title'), /<h2/);
+  assert.match(md('**bold**'), /<strong>bold<\/strong>/);
+  assert.match(md('run `npm test` now'), /<code>npm test<\/code>/);
+  assert.match(md('- one' + NL + '- two'), /<ul[^>]*>.*<li>one<\/li>/);
+  assert.match(md('1. one' + NL + '2. two'), /<ol/);
+  const table = md('| a | b |' + NL + '|---|---|' + NL + '| 1 | 2 |');
+  assert.match(table, /<th>a<\/th>/);
+  assert.match(table, /<td>1<\/td>/);
+  assert.match(table, /md-tablewrap/, 'wide tables must scroll in their own box');
+});
+
+test('code spans keep their contents literal', () => {
+  assert.match(md('`**not bold**`'), /<code>\*\*not bold\*\*<\/code>/);
+  assert.ok(!md('```' + NL + '**x**' + NL + '```').includes('<strong>'));
+});
+
+test('raw HTML in the source can never reach the output as markup', () => {
+  // The whole security design: everything is escaped BEFORE any rule runs, so
+  // by the time a rule could match, `<` is already `&lt;`.
+  const attacks = [
+    '<script>alert(1)</script>',
+    '<img src=x onerror=alert(1)>',
+    '<iframe src="javascript:alert(1)">',
+    '**<svg onload=alert(1)>**',
+    '# <img src=x onerror=alert(1)>',
+    '| <script>x</script> | b |' + NL + '|---|---|' + NL + '| c | d |',
+    '> <script>alert(1)</script>',
+    '- <script>alert(1)</script>',
+    '<a href="javascript:alert(1)">x</a>',
+  ];
+  for (const attack of attacks) {
+    const out = md(attack);
+    const tags = [...out.matchAll(/<\/?([a-zA-Z][a-zA-Z0-9]*)/g)].map((m) => m[1].toLowerCase());
+    const stray = tags.find((t) => !ALLOWED_TAGS.has(t));
+    assert.equal(stray, undefined, `${attack} emitted <${stray}>`);
+    const handlers = [...out.matchAll(/<[^>]+?\s(on[a-z]+)=/gi)].map((m) => m[1]);
+    assert.deepEqual(handlers, [], `${attack} emitted an event handler`);
+  }
+});
+
+test('only non-executable link schemes become links', () => {
+  assert.match(md('[x](https://a.example)'), /href="https:\/\/a\.example"/);
+  assert.match(md('[x](https://a.example)'), /rel="noopener noreferrer"/);
+  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'vbscript:x',
+                     'data:text/html;base64,PHNjcmlwdD4=']) {
+    const out = md('[x](' + bad + ')');
+    assert.ok(!out.includes('<a '), `${bad} became a link`);
+    assert.ok(out.includes('[x]'), 'a rejected link should render as its literal source');
+  }
+});
+
+test('a dense real-world document renders without emitting anything unexpected', () => {
+  const doc = [
+    '## Report', '', 'Some **bold** and `code`.', '',
+    '| # | thing | note |', '|---|---|---|', '| 1 | `a` | **b** |', '| 2 | c | d |', '',
+    '- bullet with `code`', '- [x] done item', '', '1. first', '2. second', '',
+    '> a quote', '', '---', '', '```', '<script>not executed</script>', '```',
+  ].join(NL);
+  const out = md(doc);
+  const tags = [...out.matchAll(/<\/?([a-zA-Z][a-zA-Z0-9]*)/g)].map((m) => m[1].toLowerCase());
+  assert.ok(tags.every((t) => ALLOWED_TAGS.has(t)), 'unexpected tag: ' + tags.find((t) => !ALLOWED_TAGS.has(t)));
+  assert.match(out, /<table/);
+  assert.match(out, /<blockquote/);
+  assert.match(out, /<hr/);
+  assert.match(out, /checked/);
+  assert.ok(!/ C\d+ /.test(out), 'a code placeholder leaked into the output');
+});
+
+test('empty and missing input render as nothing', () => {
+  assert.equal(md(''), '');
+  assert.equal(md(null), '');
+  assert.equal(md(undefined), '');
+});
+
+test('every place prose is shown renders it as markdown', () => {
+  // Descriptions, comments and notes should behave the same; one of them still
+  // escaping into a <pre> would be an inconsistency users would trip over.
+  assert.ok(!/esc\(t\.description\)/.test(script), 'task description still raw-escaped');
+  assert.ok(!/esc\(c\.content\)/.test(script), 'comments still raw-escaped');
+  assert.ok(!/esc\(n\.content\)/.test(script), 'notes still raw-escaped');
+  assert.ok((script.match(/md-body/g) || []).length >= 6, 'expected markdown at every prose site');
+});
