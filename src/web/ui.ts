@@ -266,6 +266,37 @@ body.resizing { cursor: ew-resize; user-select: none; }
   font-size: 12px; color: var(--muted);
 }
 .hiddenbar hr { flex: 1; border: none; border-top: 1px dashed var(--border); }
+.md-p { margin: 0 0 8px; }
+.md-p:last-child { margin-bottom: 0; }
+.md-h { margin: 12px 0 6px; font-size: 14px; font-weight: 650; }
+.md-h:first-child { margin-top: 0; }
+h1.md-h { font-size: 17px; } h2.md-h { font-size: 15px; } h3.md-h { font-size: 14px; }
+.md-list { margin: 0 0 8px; padding-left: 20px; }
+.md-list li { margin: 2px 0; }
+.md-task { list-style: none; margin-left: -18px; }
+.md-quote {
+  margin: 0 0 8px; padding: 4px 10px; color: var(--muted);
+  border-left: 3px solid var(--border);
+}
+.md-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.md-code {
+  margin: 0 0 8px; padding: 8px 10px; overflow-x: auto;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45;
+}
+code {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+}
+.md-code code { background: none; border: none; padding: 0; font-size: inherit; }
+/* Wide tables scroll inside their own box rather than stretching the drawer. */
+.md-tablewrap { overflow-x: auto; margin: 0 0 8px; }
+.md-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.md-table th, .md-table td {
+  border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top;
+}
+.md-table th { background: var(--panel-2); font-weight: 600; white-space: nowrap; }
+.md-body a { color: var(--accent); }
 .toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
@@ -356,6 +387,185 @@ function tagPills(json) {
   }).join(' ');
 }
 function canEdit() { return !S.readOnly; }
+
+/* ---------- markdown ---------- */
+
+/**
+ * A small markdown renderer for descriptions, comments and notes.
+ *
+ * Content here is written by agents, so the order of operations is the whole
+ * security design: EVERY character is HTML-escaped first, and the markdown
+ * transformations then run over already-escaped text. Raw HTML in the source
+ * can never reach innerHTML, because by the time any rule matches, \`<\` is
+ * already \`&lt;\`. There is no sanitiser to get wrong and no allow-list to keep
+ * up to date.
+ *
+ * Links are the one place a payload could still hide, so their href is
+ * restricted to http, https and mailto.
+ */
+function mdEscape(text) {
+  return String(text).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+/** Only schemes that cannot execute. Anything else renders as plain text. */
+function mdSafeHref(href) {
+  var trimmed = href.trim();
+  // The href arrives already escaped, so &amp; must be read back as &.
+  var plain = trimmed.replace(/&amp;/g, '&');
+  if (/^(https?:\\/\\/|mailto:)/i.test(plain)) return plain;
+  if (/^[/#]/.test(plain)) return plain;
+  return null;
+}
+
+/** Inline rules, applied to already-escaped text. */
+function mdInline(text, codeStore) {
+  var out = text;
+
+  // Code spans first, stashed so no later rule edits their contents.
+  out = out.replace(/\`([^\`]+)\`/g, function (_m, code) {
+    codeStore.push('<code>' + code + '</code>');
+    return ' C' + (codeStore.length - 1) + ' ';
+  });
+
+  out = out.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, function (whole, label, href) {
+    var safe = mdSafeHref(href);
+    // A rejected link renders as the literal source rather than a bare label,
+    // so nothing is silently rewritten and the reader sees what was written.
+    if (!safe) return whole;
+    return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+  });
+
+  out = out.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+  out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  out = out.replace(/(^|[^*])\\*([^*\\n]+)\\*/g, '$1<em>$2</em>');
+  out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return out;
+}
+
+function mdRestore(text, codeStore) {
+  return text.replace(/ C(\\d+) /g, function (_m, i) { return codeStore[Number(i)]; });
+}
+
+/** A pipe table needs a delimiter row underneath the header. */
+function mdIsTableDelimiter(line) {
+  return /^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$/.test(line);
+}
+
+function mdSplitRow(line) {
+  var trimmed = line.trim().replace(/^\\|/, '').replace(/\\|$/, '');
+  return trimmed.split('|').map(function (cell) { return cell.trim(); });
+}
+
+function md(source) {
+  if (!source) return '';
+  var codeStore = [];
+  var lines = mdEscape(source).split('\\n');
+  var html = [];
+  var i = 0;
+
+  while (i < lines.length) {
+    var line = lines[i];
+
+    // fenced code — taken verbatim, no inline rules applied
+    var fence = /^\\s*\`\`\`(.*)$/.exec(line);
+    if (fence) {
+      var body = [];
+      i++;
+      while (i < lines.length && !/^\\s*\`\`\`/.test(lines[i])) { body.push(lines[i]); i++; }
+      i++;
+      html.push('<pre class="md-code"><code>' + body.join('\\n') + '</code></pre>');
+      continue;
+    }
+
+    if (/^\\s*$/.test(line)) { i++; continue; }
+
+    var hr = /^\\s*([-*_])(\\s*\\1){2,}\\s*$/.test(line);
+    if (hr) { html.push('<hr class="md-hr">'); i++; continue; }
+
+    var heading = /^(#{1,6})\\s+(.*)$/.exec(line);
+    if (heading) {
+      var level = heading[1].length;
+      html.push('<h' + level + ' class="md-h">' + mdInline(heading[2], codeStore) + '</h' + level + '>');
+      i++;
+      continue;
+    }
+
+    // table: a header row followed by a delimiter row
+    if (line.indexOf('|') >= 0 && i + 1 < lines.length && mdIsTableDelimiter(lines[i + 1])) {
+      var head = mdSplitRow(line);
+      i += 2;
+      var rows = [];
+      while (i < lines.length && lines[i].indexOf('|') >= 0 && !/^\\s*$/.test(lines[i])) {
+        rows.push(mdSplitRow(lines[i]));
+        i++;
+      }
+      var t = '<div class="md-tablewrap"><table class="md-table"><thead><tr>';
+      head.forEach(function (cell) { t += '<th>' + mdInline(cell, codeStore) + '</th>'; });
+      t += '</tr></thead><tbody>';
+      rows.forEach(function (row) {
+        t += '<tr>';
+        row.forEach(function (cell) { t += '<td>' + mdInline(cell, codeStore) + '</td>'; });
+        t += '</tr>';
+      });
+      html.push(t + '</tbody></table></div>');
+      continue;
+    }
+
+    var quote = /^\\s*&gt;\\s?(.*)$/.exec(line);
+    if (quote) {
+      var qbody = [quote[1]];
+      i++;
+      while (i < lines.length && /^\\s*&gt;\\s?(.*)$/.test(lines[i])) {
+        qbody.push(/^\\s*&gt;\\s?(.*)$/.exec(lines[i])[1]);
+        i++;
+      }
+      html.push('<blockquote class="md-quote">' + mdInline(qbody.join(' '), codeStore) + '</blockquote>');
+      continue;
+    }
+
+    var bullet = /^(\\s*)([-*+])\\s+(.*)$/.exec(line);
+    var numbered = /^(\\s*)(\\d+)[.)]\\s+(.*)$/.exec(line);
+    if (bullet || numbered) {
+      var ordered = !!numbered;
+      var items = [];
+      while (i < lines.length) {
+        var b = /^(\\s*)([-*+])\\s+(.*)$/.exec(lines[i]);
+        var n = /^(\\s*)(\\d+)[.)]\\s+(.*)$/.exec(lines[i]);
+        var m = ordered ? n : b;
+        if (!m) break;
+        var text = m[3];
+        // task-list checkboxes, rendered as a disabled box
+        var box = /^\\[([ xX])\\]\\s+(.*)$/.exec(text);
+        if (box) {
+          items.push('<li class="md-task"><input type="checkbox" disabled' +
+            (box[1] === ' ' ? '' : ' checked') + '> ' + mdInline(box[2], codeStore) + '</li>');
+        } else {
+          items.push('<li>' + mdInline(text, codeStore) + '</li>');
+        }
+        i++;
+      }
+      html.push('<' + (ordered ? 'ol' : 'ul') + ' class="md-list">' + items.join('') + '</' + (ordered ? 'ol' : 'ul') + '>');
+      continue;
+    }
+
+    // paragraph: consecutive non-blank lines that start no other block
+    var para = [line];
+    i++;
+    while (i < lines.length && !/^\\s*$/.test(lines[i]) &&
+           !/^(#{1,6})\\s/.test(lines[i]) && !/^\\s*\`\`\`/.test(lines[i]) &&
+           !/^\\s*([-*+])\\s/.test(lines[i]) && !/^\\s*\\d+[.)]\\s/.test(lines[i]) &&
+           !/^\\s*&gt;\\s?/.test(lines[i]) &&
+           !(lines[i].indexOf('|') >= 0 && i + 1 < lines.length && mdIsTableDelimiter(lines[i + 1]))) {
+      para.push(lines[i]);
+      i++;
+    }
+    html.push('<p class="md-p">' + mdInline(para.join(' '), codeStore) + '</p>');
+  }
+
+  return mdRestore(html.join(''), codeStore);
+}
 
 /* ---------- generic modal form ---------- */
 
@@ -581,7 +791,7 @@ function viewOverview() {
     pill('st', o.project.status) +
     '<span class="muted">' + (s.completion_pct || 0) + '% complete</span>' +
     (canEdit() ? '<button class="btn" id="editProject">Edit</button>' : '') + '</div>' +
-    (o.project.description ? '<pre class="body muted">' + esc(o.project.description) + '</pre>' : '') +
+    (o.project.description ? '<div class="body md-body muted">' + md(o.project.description) + '</div>' : '') +
     '<div style="margin-top:10px">' + progressBar(s.completion_pct) + '</div>' +
     '</div>';
 
@@ -702,7 +912,7 @@ function viewEpics() {
       '</div>';
     if (open) {
       h += '<div class="epic-body">' +
-        (e.description ? '<pre class="body muted" style="margin-bottom:10px">' + esc(e.description) + '</pre>' : '') +
+        (e.description ? '<div class="body md-body muted" style="margin-bottom:10px">' + md(e.description) + '</div>' : '') +
         '<div class="tlist">' +
         (list.length ? list.map(function (t) {
           var extra = t.subtask_count ? '☑ ' + t.subtask_done + '/' + t.subtask_count : '';
@@ -738,7 +948,7 @@ function viewNotes() {
         '</div>' +
         (n.related_entity_type ? '<div class="muted" style="font-size:12px;margin-top:2px">on ' +
           esc(n.related_entity_type) + ' #' + esc(n.related_entity_id) + '</div>' : '') +
-        '<pre class="body">' + esc(n.content) + '</pre>' +
+        '<div class="body md-body">' + md(n.content) + '</div>' +
         (tagPills(n.tags) ? '<div style="margin-top:8px">' + tagPills(n.tags) + '</div>' : '') +
         '</div>';
     }).join('');
@@ -903,7 +1113,7 @@ function drawTask() {
     '</h3>' +
     (locked ? '<div class="empty">Agents cannot rewrite this description while it is locked — ' +
               'they are told to comment instead.</div>' : '') +
-    (t.description ? '<pre class="body">' + esc(t.description) + '</pre>'
+    (t.description ? '<div class="body md-body">' + md(t.description) + '</div>'
                    : '<div class="empty">No description.</div>');
 
   h += '<h3>Subtasks <span class="muted">(' + t.subtasks.length + ')</span></h3>';
@@ -977,7 +1187,7 @@ function drawTask() {
       (ed ? (c.is_deleted ? '<button class="link" data-cmt-restore="' + c.id + '">restore</button>'
                           : '<button class="link" data-cmt-del="' + c.id + '">remove</button>') : '') +
       '</div>' +
-      '<pre class="body' + (c.is_deleted ? ' strike' : '') + '">' + esc(c.content) + '</pre>' +
+      '<div class="body md-body' + (c.is_deleted ? ' strike' : '') + '">' + md(c.content) + '</div>' +
       (c.is_deleted && c.delete_reason ? '<div class="hdr">reason: ' + esc(c.delete_reason) + '</div>' : '') +
       '</div>';
   }).join('') : '<div class="empty">No comments.</div>';
@@ -992,7 +1202,7 @@ function drawTask() {
   h += '<h3>Notes' + (ed ? ' <button class="btn" id="addTaskNote">+ Note</button>' : '') + '</h3>';
   h += t.notes.length ? t.notes.map(function (n) {
     return '<div class="cmt"><div class="hdr">' + esc(label(n.note_type)) + ' · ' + fmtDate(n.created_at) +
-      '</div><strong>' + esc(n.title) + '</strong><pre class="body">' + esc(n.content) + '</pre></div>';
+      '</div><strong>' + esc(n.title) + '</strong><div class="body md-body">' + md(n.content) + '</div></div>';
   }).join('') : '<div class="empty">None.</div>';
 
   if (t.activity.length) {

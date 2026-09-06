@@ -513,6 +513,7 @@ What you get:
 - **Board** — kanban across the five task statuses; drag a card to change its status
 - **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an agent just wrote
 - **Notes** and **Activity** — decisions and the complete change history
+- **Markdown** — descriptions, comments and notes render headings, tables, lists, code and links. Agent-written content is escaped before any markdown rule runs, so raw HTML can never reach the page, and only http/https/mailto links are followed
 - **Archived section** — archived epics collapse below a divider, with a "show archived (N)" toggle
 - **Task drawer** — edit any field, comment, remove or restore a comment, lock the description, drag subtasks into order, and set which subtasks wait on which. Each subtask has one control carrying its whole state (todo / in progress / done, or blocked), and the drawer resizes by dragging its edge
 - **Project switcher** — every project in the database, so one central `.tracker.db` covers all your repos; every tab, including Activity, is scoped to the selected project
