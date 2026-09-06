@@ -164,6 +164,21 @@ ok('long descriptions are previewed in lists', listed.some((r) => typeof r.descr
 ok('task_get returns the full description', (await s.call('task_get', { id: t1.id })).description.length === 400);
 ok('the dashboard reports real progress', (await s.call('tracker_dashboard', { project_id: projectId })).stats.total_tasks === 2);
 
+section('what to work on next');
+{
+  // Through the real transport, on the same data the dashboard just reported.
+  const n = await s.call('tracker_next', { project_id: projectId });
+  ok('tracker_next recommends one task with a reason', !!n.task && typeof n.reason === 'string', n.summary);
+  ok('the summary names the task it picked', n.summary.includes("#" + n.task.id), n.summary);
+  const dash = JSON.stringify(await s.call('tracker_dashboard', { project_id: projectId })).length;
+  ok('and it is cheaper than the dashboard', JSON.stringify(n).length < dash * 0.6,
+     JSON.stringify(n).length + ' vs ' + dash);
+
+  await s.call('task_update', { id: t1.id, status: 'in_progress' });
+  ok('continuing beats starting', (await s.call('tracker_next', { project_id: projectId })).task.id === t1.id);
+  await s.call('task_update', { id: t1.id, status: 'todo' });
+}
+
 section('ordering and dependencies');
 {
   const orderEpic = await s.call('epic_create', { project_id: projectId, name: 'Ordered work' });
@@ -241,9 +256,9 @@ section('tool surface');
 const full = mcp();
 await full.ready;
 const fullTools = (await full.rpc('tools/list', {})).result.tools;
-ok('every tool is listed by default', fullTools.length === 39, String(fullTools.length));
+ok('every tool is listed by default', fullTools.length === 40, String(fullTools.length));
 ok('every tool carries safety annotations', fullTools.every((t) => typeof t.annotations?.readOnlyHint === 'boolean'));
-ok('the tool list stays inside its context budget', JSON.stringify(fullTools).length < 28000, String(JSON.stringify(fullTools).length));
+ok('the tool list stays inside its context budget', JSON.stringify(fullTools).length < 29000, String(JSON.stringify(fullTools).length));
 ok('and tool descriptions have not crept', JSON.stringify(fullTools).length / fullTools.length < 750,
    Math.round(JSON.stringify(fullTools).length / fullTools.length) + ' bytes/tool');
 full.stop();
@@ -251,7 +266,7 @@ full.stop();
 const core = mcp({ SAGA_TOOLS: 'core' });
 await core.ready;
 const coreTools = (await core.rpc('tools/list', {})).result.tools;
-ok('the core surface is much smaller', coreTools.length === 12 && JSON.stringify(coreTools).length < JSON.stringify(fullTools).length * 0.6);
+ok('the core surface is much smaller', coreTools.length === 13 && JSON.stringify(coreTools).length < JSON.stringify(fullTools).length * 0.6);
 ok('a tool left off the list still works', !(await core.call('template_list', {})).__error);
 core.stop();
 

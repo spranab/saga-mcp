@@ -90,7 +90,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_reorder',
     description:
-      "Set the order of an epic's tasks. Pass task IDs in the order you want; any omitted keep their relative order at the end. Read the result back with task_list sort_by=\"manual\" — the default sort is by priority, which ignores this.",
+      "Set the order of an epic's tasks. Omitted IDs keep their relative order at the end. Read it back with task_list sort_by=\"manual\"; the default sort is priority, which ignores this.",
     annotations: { title: 'Reorder Tasks', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',

@@ -12,7 +12,7 @@ lived in the context window, or in a `TODO.md` nobody updates.
 
 saga-mcp gives the agent a real tracker instead: a SQLite file in your project
 holding projects, epics, tasks, subtasks, dependencies, comments, notes and
-decisions, exposed as 39 MCP tools. The agent writes to it as it works and
+decisions, exposed as 40 MCP tools. The agent writes to it as it works and
 reads the dashboard when it comes back. No accounts, no external service, no
 network calls — the database is a file you own.
 
@@ -76,7 +76,7 @@ recent activity, notes.
 - **Activity log**: Every mutation is automatically tracked with old/new values
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **39 focused tools**: With MCP safety annotations on every tool
+- **40 focused tools**: With MCP safety annotations on every tool
 - **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
 - **Auto time tracking**: Hours computed automatically from activity log
@@ -135,7 +135,7 @@ saga-mcp requires a single environment variable:
 |----------|----------|-------------|
 | `DB_PATH` | Yes | Absolute path to the `.tracker.db` SQLite file. The file and schema are auto-created on first use. |
 | `SAGA_PROJECT` | No | Scope every tool to one project, by id or name. Set this per repo when several repos share one database. Unset, tools read across the whole file. |
-| `SAGA_TOOLS` | No | `full` (default) lists all 33 tools. `core` lists only the 12 an ordinary tracking session needs, cutting ~3,300 tokens of context per session. Tools left off the list still work if called by name. |
+| `SAGA_TOOLS` | No | `full` (default) lists all 33 tools. `core` lists only the 13 an ordinary tracking session needs, cutting ~3,300 tokens of context per session. Tools left off the list still work if called by name. |
 
 No API keys, no accounts, no external services. Everything is stored locally in the SQLite file you specify.
 
@@ -164,6 +164,7 @@ import/export, session diffs and the rest discoverable.
 | Tool | Description | Annotations |
 |------|-------------|-------------|
 | `tracker_init` | Initialize tracker and create first project | `readOnly: false`, `idempotent: true` |
+| `tracker_next` | What to work on next, with the reason and what is blocked | `readOnly: true` |
 | `tracker_dashboard` | Full project overview with natural language summary | `readOnly: true` |
 
 ### Projects
@@ -381,6 +382,34 @@ Coercion stops where intent becomes ambiguous. A comma inside a *title* is left 
 `"Design the API, then implement it"` is one subtask, not two — while a comma in a tag or an id
 list is a separator, because neither can contain one. Anything genuinely unusable is refused with
 a message naming what arrived and what was wanted, rather than a leaked `ids.map is not a function`.
+
+## Asking what to do next
+
+`tracker_dashboard` hands an agent everything and leaves it to reason. `tracker_next` answers the
+question:
+
+```
+tracker_next()
+  -> Work on #12 'Write the adapter' — already in progress, high priority, in the
+     active epic 'Provider swap'. Next step: implement. Also overdue: #18 'Renew cert'.
+     3 other task(s) are blocked.
+```
+
+One recommendation with the reason, the next unfinished subtask inside it, a couple of
+alternatives, and anything overdue or blocked. About a third the size of the dashboard.
+
+The ordering rule worth knowing: **continuing beats starting.** A task already in progress outranks
+an untouched one that is overdue or higher priority, because abandoning work in flight just leaves
+two things unfinished — the overdue work is named in the summary instead. Blocked tasks are never
+recommended, archived epics and removed tasks are skipped, and subtask dependencies decide which
+step comes next inside the chosen task.
+
+When nothing is actionable it says what to unblock rather than returning an empty answer:
+
+```
+Nothing is actionable: all 4 remaining task(s) are blocked.
+Unblocking #7 'the keystone' would release 3 of them.
+```
 
 ## Ordering and dependencies
 
