@@ -428,16 +428,26 @@ Unblocking #7 'the keystone' would release 3 of them.
 
 ## Ordering and dependencies
 
-`task_list` sorts by priority by default, which is usually what an agent wants but ignores any
-order you arranged by hand. `sort_by: "manual"` reads back the order `task_reorder` set:
+**A deliberate order wins over a guess.** `task_list` sorts by priority until someone arranges an
+epic, and from then on it follows the arrangement:
 
 ```
 task_reorder({ epic_id: 2, ordered_ids: [8, 5, 6] })
-task_list({ epic_id: 2, sort_by: "manual" })     # 8, 5, 6
+task_list({ epic_id: 2 })                        # 8, 5, 6 — the plan, in order
+task_list({ epic_id: 2, sort_by: "priority" })   # priority, if that is what you want
 ```
 
+Priority is a reasonable guess about what matters; a sequence someone wrote down is not a guess.
+An agent handed a plan should start at the beginning of it, not at whichever step happens to be
+marked critical.
+
+Nothing changes for epics nobody has arranged — those sort by priority exactly as before, and an
+explicit `sort_by` is always obeyed literally.
+
 Anything omitted from `ordered_ids` keeps its relative position at the end. `sort_order` runs
-ascending — lower sorts first — and in the web UI you can drag tasks into place inside an epic.
+ascending — lower sorts first — and a task created *after* an arrangement has no place in it, so it
+lands at the end rather than the front. In the web UI you can drag tasks into place inside an epic,
+and finished ones are struck through.
 
 Task dependencies auto-block and auto-unblock:
 

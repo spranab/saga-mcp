@@ -80,8 +80,7 @@ export const definitions: Tool[] = [
         sort_by: {
           type: 'string',
           enum: ['priority', 'created', 'due_date', 'status', 'manual'],
-          default: 'priority',
-          description: 'priority (critical first), created (newest first), due_date (earliest first), status (actionable first), manual (the order set by task_reorder)',
+          description: 'Omit to follow the arrangement set by task_reorder, falling back to priority. priority (critical first), created (newest), due_date (earliest), status (actionable first), manual.',
         },
         limit: { type: 'integer', default: 50, description: 'Max results' },
       },
@@ -90,7 +89,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_reorder',
     description:
-      "Set the order of an epic's tasks. Omitted IDs keep their relative order at the end. Read it back with task_list sort_by=\"manual\"; the default sort is priority, which ignores this.",
+      "Set the order of an epic's tasks. Omitted IDs keep their relative order at the end. task_list then follows this arrangement by default.",
     annotations: { title: 'Reorder Tasks', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -294,6 +293,24 @@ function handleTaskCreate(args: Record<string, unknown>) {
 const PRIORITY_ORDER = "CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END";
 const STATUS_ORDER = "CASE t.status WHEN 'blocked' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 END";
 
+/**
+ * task_reorder writes 1..N, so sort_order = 0 means "never placed". Those sort
+ * last rather than first: a task created after an arrangement was made has no
+ * position in it, and the head of a plan is the one place it certainly does
+ * not belong.
+ */
+const UNPLACED_LAST = 'CASE WHEN t.sort_order = 0 THEN 1 ELSE 0 END';
+
+/**
+ * The arrangement a human actually made, honoured across epics.
+ *
+ * Epics are grouped first because sort_order only means anything within one
+ * epic -- position 1 of epic A and position 1 of epic B are unrelated, so
+ * interleaving them by number would invent an order nobody set. Priority still
+ * decides between tasks that share a position, i.e. the unplaced ones.
+ */
+const ARRANGED = `e.sort_order, e.id, ${UNPLACED_LAST}, t.sort_order, ${PRIORITY_ORDER}, ${STATUS_ORDER}, t.created_at`;
+
 function getTaskOrderClause(sortBy: string): string {
   switch (sortBy) {
     case 'priority':
@@ -305,12 +322,24 @@ function getTaskOrderClause(sortBy: string): string {
     case 'created':
       return `t.created_at DESC`;
     case 'manual':
-      // The order a human or agent actually arranged, which every other mode
-      // treats as a tiebreaker at best.
-      return `t.sort_order, t.created_at`;
+      return `e.sort_order, e.id, ${UNPLACED_LAST}, t.sort_order, t.created_at`;
+    case 'arranged':
+      return ARRANGED;
     default:
       return `${PRIORITY_ORDER}, ${STATUS_ORDER}, t.sort_order, t.created_at`;
   }
+}
+
+/** Has anything in this result set been placed by task_reorder? */
+function hasArrangement(
+  db: ReturnType<typeof getDb>,
+  whereClauses: string[],
+  params: unknown[]
+): boolean {
+  const clauses = [...whereClauses, 't.sort_order != 0'];
+  const sql = `SELECT 1 FROM tasks t JOIN epics e ON e.id = t.epic_id
+               WHERE ${clauses.join(' AND ')} LIMIT 1`;
+  return db.prepare(sql).get(...params) !== undefined;
 }
 
 function handleTaskList(args: Record<string, unknown>) {
@@ -321,7 +350,7 @@ function handleTaskList(args: Record<string, unknown>) {
   const assignedTo = args.assigned_to as string | undefined;
   const tag = args.tag as string | undefined;
   const branchFilter = resolveBranch(args.branch);
-  const sortBy = (args.sort_by as string) ?? 'priority';
+  const explicitSort = args.sort_by as string | undefined;
   const limit = (args.limit as number) ?? 50;
 
   const whereClauses: string[] = [];
@@ -363,6 +392,21 @@ function handleTaskList(args: Record<string, unknown>) {
   }
 
   const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  /**
+   * Which order to use when the caller did not say (#48).
+   *
+   * Sorting by priority ignored a deliberate arrangement, so an agent handed a
+   * sequenced plan would start in the middle of it -- @rusak47's report had the
+   * list opening on "Phase 1.1" while the plan began at "Phase 0". Priority is
+   * the right guess only while nobody has expressed a better one.
+   *
+   * The test is exact rather than clever: if any task in this result was placed
+   * by task_reorder, follow the arrangement; otherwise sort exactly as before.
+   * An explicit sort_by is always obeyed literally -- asking for priority gets
+   * priority, arrangement or not.
+   */
+  const sortBy = explicitSort ?? (hasArrangement(db, whereClauses, params) ? 'arranged' : 'priority');
 
   const sql = `
     SELECT t.*,

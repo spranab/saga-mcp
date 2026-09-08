@@ -964,7 +964,11 @@ function taskLine(t, extra, opts) {
     (drag ? ' data-task-row="' + t.id + '" data-epic="' + t.epic_id + '" draggable="true"' : '') + '>' +
     (drag ? '<span class="thandle" title="Drag to reorder">⠿</span>' : '') +
     (t.status === 'blocked' ? blockedMark(t) : '<span class="dot st-' + esc(t.status) + '"></span>') +
-    '<span class="grow ellip">' + esc(t.title) + '</span>' +
+    // A finished task reads as struck through and dimmed (#49). Subtasks in the
+    // drawer already did this; the epic tree was the omission, so the same task
+    // looked finished in one place and open in another.
+    '<span class="grow ellip' + (t.status === 'done' ? ' muted strike' : '') + '">' +
+      esc(t.title) + '</span>' +
     (extra ? '<span class="muted" style="font-size:12px">' + extra + '</span>' : '') +
     (t.epic_name ? '<span class="muted ellip" style="font-size:12px;max-width:180px">' + esc(t.epic_name) + '</span>' : '') +
     pill('pr', t.priority) + '</div>';

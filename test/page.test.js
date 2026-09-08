@@ -670,3 +670,30 @@ test('a template whose JSON could not be read says so instead of looking empty',
   });
   assert.match(html, /could not be read/);
 });
+
+/* ---------- finished tasks read as finished (#49) ---------- */
+
+test('a done task in the tree is struck through and dimmed', () => {
+  // Reported by @rusak47: subtasks in the drawer already rendered this way,
+  // so the same task looked finished in one place and open in another.
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.taskLine({ id: 1, epic_id: 1, title: 'Shipped it', status: 'done', priority: 'low' }, '', {});
+  const span = /<span class="([^"]*)">Shipped it<\/span>/.exec(html);
+  assert.ok(span, 'title span not found in: ' + html);
+  assert.match(span[1], /strike/);
+  assert.match(span[1], /muted/);
+});
+
+test('an unfinished task is not struck through', () => {
+  const { ctx } = runPage(emptyRoutes);
+  for (const status of ['todo', 'in_progress', 'review']) {
+    const html = ctx.taskLine({ id: 2, epic_id: 1, title: 'Open', status: status, priority: 'low' }, '', {});
+    assert.ok(!/strike/.test(html), status + ' should not be struck: ' + html);
+  }
+});
+
+test('the strike matches how a done subtask already renders', () => {
+  // One treatment for one meaning; the two should not drift apart again.
+  assert.match(script, /' muted strike'/);
+  assert.match(css, /\.strike \{ text-decoration: line-through; \}/);
+});
