@@ -236,6 +236,18 @@ body.resizing { cursor: ew-resize; user-select: none; }
 .checklist { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
 .checkrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
 .checkrow input[type=checkbox] { width: auto; flex: none; margin: 0; }
+/* .checkrow sets display:flex, which has the same specificity as a bare
+   [hidden] rule -- so source order alone would decide whether a filtered-out
+   row actually disappears. Same trap as #25. Be explicit. */
+.checkrow[hidden] { display: none; }
+.filterrow { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.filterrow input[type=search] {
+  flex: 1; min-width: 0; font: inherit; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); color: var(--text);
+}
+.filterrow .scopetoggle { flex: none; cursor: pointer; white-space: nowrap; color: var(--muted); }
+.checkcount { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .checkrow span { flex: 1; min-width: 0; }
 .sub .handle { cursor: grab; color: var(--muted); user-select: none; font-size: 12px; }
 /* One control per subtask carrying its whole state: todo / in progress / done,
@@ -621,14 +633,32 @@ function modal(title, fields, submitLabel, onSubmit) {
       });
       h += '</select>';
     } else if (f.type === 'checkboxes') {
+      // A project-wide candidate list gets long fast (#45). When the field asks
+      // for it, offer a keyword filter and an optional scope toggle. Filtering
+      // is presentation only: the boxes stay in the DOM, so what is submitted
+      // never depends on what happens to be visible.
+      if (f.filterable) {
+        h += '<div class="filterrow">' +
+             '<input type="search" id="q_' + f.key + '" placeholder="' +
+               esc(f.filterPlaceholder || 'Filter by keyword') + '" autocomplete="off">' +
+             (f.scopeLabel
+               ? '<label class="checkrow scopetoggle"><input type="checkbox" id="s_' + f.key + '"' +
+                 (f.scopeOn ? ' checked' : '') + '> <span>' + esc(f.scopeLabel) + '</span></label>'
+               : '') +
+             '</div>';
+      }
       h += '<div id="f_' + f.key + '" class="checklist">';
       (f.options || []).forEach(function (o) {
         var on = (f.value || []).indexOf(o.value) >= 0;
-        h += '<label class="checkrow"><input type="checkbox" value="' + esc(o.value) + '"' +
+        h += '<label class="checkrow" data-search="' + esc(String(o.text).toLowerCase()) + '"' +
+             (o.scope === undefined ? '' : ' data-scope="' + esc(o.scope) + '"') +
+             '><input type="checkbox" value="' + esc(o.value) + '"' +
              (on ? ' checked' : '') + '> <span>' + esc(o.text) + '</span></label>';
       });
-      if (!(f.options || []).length) h += '<div class="empty">No other subtasks yet.</div>';
+      if (!(f.options || []).length) h += '<div class="empty">Nothing to choose from yet.</div>';
+      h += '<div class="empty" id="none_' + f.key + '" hidden>No match.</div>';
       h += '</div>';
+      if (f.filterable) h += '<div class="checkcount" id="n_' + f.key + '"></div>';
     } else if (f.type === 'tags') {
       h += '<input id="f_' + f.key + '" name="' + f.key + '" value="' + esc(v) +
            '" placeholder="comma, separated">';
@@ -647,6 +677,57 @@ function modal(title, fields, submitLabel, onSubmit) {
   m.innerHTML = h;
   document.body.appendChild(backdrop);
   document.body.appendChild(m);
+
+  /**
+   * Live filtering for a checkboxes field.
+   *
+   * The one rule that matters: a CHECKED row is never hidden. Filtering only
+   * changes what you can see, while the submit reads every checked box in the
+   * DOM -- so hiding a selected item would leave the user unable to see or
+   * remove a dependency that is still being saved.
+   */
+  fields.forEach(function (f) {
+    if (f.type !== 'checkboxes' || !f.filterable) return;
+    var box = m.querySelector('#f_' + f.key);
+    var query = m.querySelector('#q_' + f.key);
+    var scope = m.querySelector('#s_' + f.key);
+    var none = m.querySelector('#none_' + f.key);
+    var count = m.querySelector('#n_' + f.key);
+    var rows = Array.prototype.slice.call(box.querySelectorAll('.checkrow'));
+
+    function applyFilter() {
+      var term = (query && query.value ? query.value : '').trim().toLowerCase();
+      var scoped = !!(scope && scope.checked);
+      // Count what the search actually matched separately from what is on
+      // screen. A selected row is shown regardless, so counting only visible
+      // rows would hide the fact that the keyword found nothing.
+      var matched = 0, shown = 0;
+      rows.forEach(function (row) {
+        var cb = row.querySelector('input');
+        var hit = (!term || row.getAttribute('data-search').indexOf(term) >= 0) &&
+                  (!scoped || String(row.getAttribute('data-scope')) === String(f.scopeValue));
+        if (hit) matched++;
+        var keep = hit || (cb && cb.checked);
+        row.hidden = !keep;
+        if (keep) shown++;
+      });
+      if (none) {
+        none.hidden = matched > 0;
+        none.textContent = shown > 0
+          ? 'No match — showing your current selections.'
+          : 'No match.';
+      }
+      if (count) {
+        count.textContent = shown === rows.length
+          ? rows.length + ' shown'
+          : shown + ' of ' + rows.length + ' shown (selected are always listed)';
+      }
+    }
+
+    if (query) query.addEventListener('input', applyFilter);
+    if (scope) scope.addEventListener('change', applyFilter);
+    applyFilter();
+  });
 
   var first = m.querySelector('input, textarea, select');
   if (first) first.focus();
@@ -1490,12 +1571,17 @@ document.addEventListener('click', function (ev) {
       if (x.id === self.id) return false;
       return x.status !== 'done' || current.indexOf(x.id) >= 0;
     }).map(function (x) {
-      return { value: x.id, text: '#' + x.id + '  ' + x.title + '  · ' + (x.epic_name || '') +
+      return { value: x.id, scope: x.epic_id,
+        text: '#' + x.id + '  ' + x.title + '  · ' + (x.epic_name || '') +
         (x.status === 'done' ? '  (done)' : '') };
     });
     return modal('“' + self.title + '” waits on…', [
       { key: 'depends_on', label: 'Tasks that must finish first — this one is blocked until they are done',
-        type: 'checkboxes', options: candidates, value: current }
+        type: 'checkboxes', options: candidates, value: current,
+        // The list is project-wide, so it gets long (#45). Both controls asked
+        // for: keyword filter, and a one-click narrowing to this task's epic.
+        filterable: true, filterPlaceholder: 'Filter by title, epic or #id',
+        scopeLabel: 'This epic only', scopeValue: self.epic_id, scopeOn: false }
     ], 'Save', function (values) {
       return act('task_update', { id: self.id, depends_on: values.depends_on })
         .then(function () { toast('Dependencies updated'); return refresh(); });

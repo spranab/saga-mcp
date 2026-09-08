@@ -505,3 +505,73 @@ test('the critical pill keeps readable text on its fill in both themes', () => {
   assert.equal(inks.length, 2, 'critical ink should be defined for light and dark');
   assert.notEqual(inks[0], inks[1], 'the two themes need different ink or one of them is unreadable');
 });
+
+/* ---------- dependency picker filtering (#45) ---------- */
+
+/**
+ * The dependency picker offers every unfinished task in the project, which
+ * @rusak47 reported gets unusably long. It now has a keyword filter and a
+ * "this epic only" toggle.
+ *
+ * Filtering is presentation only -- the boxes stay in the DOM and the submit
+ * reads every checked one -- so the invariant that matters is that a CHECKED
+ * row is never hidden. Hiding a selected dependency would leave the user
+ * unable to see or remove something that is still being saved.
+ */
+test('a filtered-out row is actually hidden by the stylesheet', () => {
+  // .checkrow sets display:flex, which ties with a bare [hidden] on
+  // specificity -- source order alone would decide. Same trap as #25, so
+  // resolve the cascade rather than trusting where the rule happens to sit.
+  const displays = declarationsOf('display').filter(
+    (d) => d.sel === '.checkrow' || d.sel === '.checkrow[hidden]'
+  );
+  assert.ok(displays.length >= 2, 'expected both a .checkrow and a .checkrow[hidden] display rule');
+  const won = winner(displays);
+  assert.equal(won.sel, '.checkrow[hidden]');
+  assert.equal(won.value, 'none');
+});
+
+test('the filter is presentation only: hidden boxes still submit', () => {
+  // The submit reads input:checked across the whole list, which ignores
+  // visibility. This is the behaviour the "never hide a checked row" rule
+  // depends on, so pin it.
+  assert.match(script, /querySelectorAll\('input:checked'\)/);
+});
+
+test('a checked row is never hidden by the filter', () => {
+  // The invariant, read off the filter itself: the checked state short-circuits
+  // the keyword and scope tests.
+  const fn = script.slice(script.indexOf('function applyFilter()'));
+  const body = fn.slice(0, fn.indexOf('\n    }'));
+  assert.match(body, /var keep = hit \|\| \(cb && cb\.checked\);/,
+    'a row is kept if it matched OR is checked -- the checked case must not be conditional');
+});
+
+test('the picker asks for a filter and a scope toggle', () => {
+  assert.match(script, /filterable: true/);
+  assert.match(script, /scopeLabel: 'This epic only'/);
+  assert.match(script, /scopeValue: self\.epic_id/);
+});
+
+test('candidate rows carry what the filter matches on', () => {
+  // data-search is lowercased at render time so the filter can do a plain
+  // substring test, and data-scope carries the epic for the toggle.
+  assert.match(script, /data-search="' \+ esc\(String\(o\.text\)\.toLowerCase\(\)\)/);
+  assert.match(script, /data-scope="' \+ esc\(o\.scope\)/);
+  assert.match(script, /scope: x\.epic_id/);
+});
+
+test('the scope toggle starts off, so nothing is hidden until asked', () => {
+  assert.match(script, /scopeOn: false/);
+});
+
+test('"no match" describes the search, not the selections still on screen', () => {
+  // A selected row is always shown, so counting visible rows would report a
+  // match when the keyword actually found nothing. The two are counted apart.
+  const fn = script.slice(script.indexOf('function applyFilter()'));
+  const body = fn.slice(0, fn.indexOf('\n    }'));
+  assert.match(body, /var matched = 0, shown = 0;/);
+  assert.match(body, /none\.hidden = matched > 0;/,
+    'the note must key off what matched, not off what is visible');
+  assert.match(body, /showing your current selections/);
+});
