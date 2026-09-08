@@ -12,7 +12,7 @@ lived in the context window, or in a `TODO.md` nobody updates.
 
 saga-mcp gives the agent a real tracker instead: a SQLite file in your project
 holding projects, epics, tasks, subtasks, dependencies, comments, notes and
-decisions, exposed as 40 MCP tools. The agent writes to it as it works and
+decisions, exposed as 41 MCP tools. The agent writes to it as it works and
 reads the dashboard when it comes back. No accounts, no external service, no
 network calls — the database is a file you own.
 
@@ -76,7 +76,7 @@ recent activity, notes.
 - **Activity log**: Every mutation is automatically tracked with old/new values
 - **Notes system**: Decisions, context, meeting notes, blockers — all searchable
 - **Batch operations**: Create multiple subtasks or update multiple tasks in one call
-- **40 focused tools**: With MCP safety annotations on every tool
+- **41 focused tools**: With MCP safety annotations on every tool
 - **Import/export**: Full project backup and migration as JSON (with dependencies and comments)
 - **Source references**: Link tasks to specific code locations
 - **Auto time tracking**: Hours computed automatically from activity log
@@ -135,7 +135,7 @@ saga-mcp requires a single environment variable:
 |----------|----------|-------------|
 | `DB_PATH` | Yes | Absolute path to the `.tracker.db` SQLite file. The file and schema are auto-created on first use. |
 | `SAGA_PROJECT` | No | Scope every tool to one project, by id or name. Set this per repo when several repos share one database. Unset, tools read across the whole file. |
-| `SAGA_TOOLS` | No | `full` (default) lists all 33 tools. `core` lists only the 13 an ordinary tracking session needs, cutting ~3,300 tokens of context per session. Tools left off the list still work if called by name. |
+| `SAGA_TOOLS` | No | `full` (default) lists all 41 tools. `core` lists only the 13 an ordinary tracking session needs, cutting ~3,300 tokens of context per session. Tools left off the list still work if called by name. |
 
 No API keys, no accounts, no external services. Everything is stored locally in the SQLite file you specify.
 
@@ -221,7 +221,8 @@ import/export, session diffs and the rest discoverable.
 | Tool | Description | Annotations |
 |------|-------------|-------------|
 | `template_create` | Create a reusable task template with `{variable}` placeholders | `readOnly: false` |
-| `template_list` | List available templates | `readOnly: true` |
+| `template_list` | List templates; `include_tasks` shows what each one creates | `readOnly: true` |
+| `template_update` | Edit a template in place — name, description or tasks | `readOnly: false`, `idempotent: true` |
 | `template_apply` | Apply template to create tasks with variable substitution | `readOnly: false` |
 | `template_delete` | Delete a template | `destructive: true`, `idempotent: true` |
 
@@ -299,6 +300,20 @@ template_create({
 **Apply it:**
 ```
 template_apply({ template_id: 1, epic_id: 2, variables: { "feature": "user auth" } })
+```
+
+Templates are editable in place, which matters because the id is what
+`template_apply` refers to:
+
+```js
+// change just the name; the tasks are untouched
+template_update({ id: 1, name: "Feature rollout" })
+
+// or replace the task list wholesale
+template_update({ id: 1, tasks: [{ title: "Design {feature}", priority: "high" }] })
+
+// see what a template actually creates, rather than just how many tasks
+template_list({ include_tasks: true })
 ```
 
 Creates 4 tasks: "Design user auth API", "Implement user auth", "Write tests for user auth", "Document user auth".
@@ -517,6 +532,12 @@ spelled out.
 
 Everything above is agent-facing. `saga-web` puts the same database in a browser — for the times
 when reviewing a spec an agent just wrote, or fixing one field by hand, is faster than another prompt.
+
+
+The **Templates** tab lists every template with the tasks it will create, the
+`{placeholders}` it uses, and buttons to edit the details, edit the task list as
+JSON, apply it to an epic, or delete it. Templates live in the database as a
+whole rather than in one project, and the tab says so.
 
 ```bash
 npx -p saga-mcp saga-web ./.tracker.db --open

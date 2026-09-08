@@ -233,6 +233,50 @@ section('getting old work out of the way');
   await s.call('epic_archive', { id: shelf.id, archived: false });
 }
 
+
+
+section('templates: view and edit');
+{
+  const t = await s.call('template_create', {
+    name: 'Gate template',
+    description: 'seeded by the gate',
+    tasks: [
+      { title: 'Do {thing}', priority: 'high', tags: ['a'] },
+      { title: 'Then the other', estimated_hours: 1 },
+    ],
+  });
+  ok('a template can be created', !!t.id);
+
+  const bare = (await s.call('template_list', {})).find((x) => x.id === t.id);
+  const full = (await s.call('template_list', { include_tasks: true })).find((x) => x.id === t.id);
+  ok('template_list is cheap by default', !('tasks' in bare) && bare.task_count === 2);
+  ok('and can show what a template creates', Array.isArray(full.tasks) && full.tasks.length === 2);
+  ok('the raw JSON column is never returned', !('template_data' in bare) && !('template_data' in full));
+
+  // The point of #44: editing in place, keeping the id.
+  const renamed = await s.call('template_update', { id: t.id, name: 'Gate template v2' });
+  ok('a template can be renamed in place', renamed.name === 'Gate template v2' && renamed.id === t.id);
+  ok('renaming leaves the tasks alone', renamed.tasks.length === 2);
+
+  const retasked = await s.call('template_update', { id: t.id, tasks: [{ title: 'Only this', priority: 'low' }] });
+  ok('tasks can be replaced', retasked.tasks.length === 1);
+  ok('and the name survives a tasks-only edit', retasked.name === 'Gate template v2');
+
+  ok('an empty task list is refused', !!(await s.call('template_update', { id: t.id, tasks: [] })).__error);
+  ok('a task with no title is refused',
+     !!(await s.call('template_update', { id: t.id, tasks: [{ priority: 'low' }] })).__error);
+  ok('an unknown priority is refused',
+     !!(await s.call('template_update', { id: t.id, tasks: [{ title: 'x', priority: 'urgent' }] })).__error);
+  ok('an update with no fields is refused', !!(await s.call('template_update', { id: t.id })).__error);
+
+  const clash = await s.call('template_create', { name: 'Gate template v2', tasks: [{ title: 'x' }] });
+  ok('a duplicate name is refused in words a human can act on',
+     /already exists/.test(clash.__error || ''), clash.__error);
+
+  await s.call('template_delete', { id: t.id });
+  ok('and it can be deleted', !(await s.call('template_list', {})).some((x) => x.id === t.id));
+}
+
 section('one database, several projects');
 const p2 = await s.call('project_create', { name: 'Second project' });
 const e2 = await s.call('epic_create', { project_id: p2.id, name: 'Other' });
@@ -269,7 +313,7 @@ await full.ready;
 }
 
 const fullTools = (await full.rpc('tools/list', {})).result.tools;
-ok('every tool is listed by default', fullTools.length === 40, String(fullTools.length));
+ok('every tool is listed by default', fullTools.length === 41, String(fullTools.length));
 ok('every tool carries safety annotations', fullTools.every((t) => typeof t.annotations?.readOnlyHint === 'boolean'));
 ok('the tool list stays inside its context budget', JSON.stringify(fullTools).length < 29000, String(JSON.stringify(fullTools).length));
 ok('and tool descriptions have not crept', JSON.stringify(fullTools).length / fullTools.length < 750,

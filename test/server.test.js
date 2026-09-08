@@ -100,7 +100,7 @@ test('a client from the future is downgraded, not refused', async () => {
 
   // And the session is genuinely usable, not merely established.
   const tools = await s.send('tools/list', {});
-  assert.equal(tools.result.tools.length, 40);
+  assert.equal(tools.result.tools.length, 41);
 });
 
 test('a nonsense protocol version still yields a usable session', async () => {
@@ -130,7 +130,7 @@ test('the server names itself and its version in the handshake', async () => {
 test('tools/list returns every tool by default', async () => {
   const s = await server();
   const res = await s.send('tools/list', {});
-  assert.equal(res.result.tools.length, 40);
+  assert.equal(res.result.tools.length, 41);
 });
 
 test('SAGA_TOOLS=core lists only the core surface, and it is much smaller', async () => {
@@ -159,7 +159,7 @@ test('a tool left off the core list is still callable by name', async () => {
 test('an unrecognised SAGA_TOOLS value warns and falls back to the full list', async () => {
   const s = await server({ SAGA_TOOLS: 'nonsense' });
   const res = await s.send('tools/list', {});
-  assert.equal(res.result.tools.length, 40);
+  assert.equal(res.result.tools.length, 41);
   assert.match(s.stderr(), /Unknown SAGA_TOOLS/);
 });
 
