@@ -191,8 +191,20 @@ section('ordering and dependencies');
   const manual = await s.call('task_list', { epic_id: orderEpic.id, sort_by: 'manual', limit: 10 });
   ok('task_reorder + sort_by manual round-trips', manual.map((t) => t.title).join(',') === 'step one,step two',
      manual.map((t) => t.title).join(','));
-  const byPriority = await s.call('task_list', { epic_id: orderEpic.id, limit: 10 });
-  ok('the default sort is still priority', byPriority[0].title === 'step two');
+  // #48: once an epic has been arranged, the default follows the arrangement.
+  // 'step two' is critical and would otherwise lead; the point is that a
+  // deliberate order outranks a guess.
+  const byDefault = await s.call('task_list', { epic_id: orderEpic.id, limit: 10 });
+  ok('the default follows a deliberate arrangement', byDefault[0].title === 'step one',
+     byDefault.map((t) => t.title).join(','));
+  const byPriority = await s.call('task_list', { epic_id: orderEpic.id, sort_by: 'priority', limit: 10 });
+  ok('an explicit priority sort is still obeyed literally', byPriority[0].title === 'step two',
+     byPriority.map((t) => t.title).join(','));
+  const late = await s.call('task_create', { epic_id: orderEpic.id, title: 'added later', priority: 'critical' });
+  const withLate = await s.call('task_list', { epic_id: orderEpic.id, limit: 10 });
+  ok('a task added after the arrangement lands at the end, not the head',
+     withLate[withLate.length - 1].title === 'added later', withLate.map((t) => t.title).join(','));
+  await s.call('task_delete', { id: late.id, reason: 'gate fixture' });
 
   await s.call('task_update', { id: two.id, depends_on: [one.id] });
   ok('a dependent task auto-blocks', (await s.call('task_get', { id: two.id })).status === 'blocked');
