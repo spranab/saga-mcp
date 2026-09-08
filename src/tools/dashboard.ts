@@ -20,7 +20,7 @@ export const definitions: Tool[] = [
         project_id: {
           type: 'integer',
           description:
-            'Project ID. Omit if the database holds one project, or if SAGA_PROJECT is set. With several projects and neither, the first is used and the rest are listed under other_projects.',
+            'Project ID. Omit for a single-project database or when SAGA_PROJECT is set. Otherwise the first is used and the rest listed under other_projects.',
         },
         branch: {
           type: 'string',

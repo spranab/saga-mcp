@@ -575,3 +575,98 @@ test('"no match" describes the search, not the selections still on screen', () =
     'the note must key off what matched, not off what is visible');
   assert.match(body, /showing your current selections/);
 });
+
+/* ---------- templates in the UI (#44) ---------- */
+
+/**
+ * @rusak47 asked to view and edit templates in the UI, noting that the MCP
+ * tools did not expose editing at all -- you had to delete and recreate, which
+ * loses the id.
+ *
+ * These run the real page functions, which matters more than usual here: the
+ * page is one big template literal, so a regex written with backslash escapes
+ * silently collapses (\w becomes a literal w) and matches nothing. Asserting
+ * on the source text would not have caught that; executing it does.
+ */
+test('templateVariables finds the placeholders a template uses', () => {
+  const { ctx } = runPage(emptyRoutes);
+  const found = ctx.templateVariables({
+    tasks: [
+      { title: 'Cut the {version} branch', description: 'for {product}' },
+      { title: 'Announce {version}' },
+      { title: 'No placeholders here' },
+    ],
+  });
+  assert.deepEqual([...found], ['version', 'product'], 'in order, without duplicates');
+});
+
+test('templateVariables copes with a template that has none', () => {
+  const { ctx } = runPage(emptyRoutes);
+  assert.deepEqual([...ctx.templateVariables({ tasks: [{ title: 'plain' }] })], []);
+  assert.deepEqual([...ctx.templateVariables({})], []);
+});
+
+test('the placeholder scan is built without backslash escapes', () => {
+  // The page is a template literal: a regex literal using \w would collapse to
+  // a literal w and quietly match nothing. This is the same trap that has bitten
+  // this file before, so pin the safe construction.
+  assert.match(script, /new RegExp\('\[\{\]\(\[A-Za-z0-9_\]\+\)\[\}\]', 'g'\)/);
+});
+
+test('parseTemplateTasks accepts a well formed list', () => {
+  const { ctx } = runPage(emptyRoutes);
+  const out = ctx.parseTemplateTasks('[{"title":"a","priority":"low"},{"title":"b"}]');
+  assert.equal(out.length, 2);
+});
+
+test('parseTemplateTasks explains what is wrong, rather than just failing', () => {
+  const { ctx } = runPage(emptyRoutes);
+  assert.throws(() => ctx.parseTemplateTasks('{not json'), /not valid JSON/);
+  assert.throws(() => ctx.parseTemplateTasks('{"title":"a"}'), /must be a JSON array/);
+  assert.throws(() => ctx.parseTemplateTasks('[]'), /at least one task/);
+  assert.throws(() => ctx.parseTemplateTasks('[{"priority":"low"}]'), /Task 1 needs a title/);
+  assert.throws(() => ctx.parseTemplateTasks('[{"title":"ok"},{"title":"  "}]'), /Task 2 needs a title/);
+  assert.throws(() => ctx.parseTemplateTasks('["nope"]'), /Task 1 is not an object/);
+});
+
+test('a synchronous throw in a modal submit is shown, not swallowed', () => {
+  // Promise.resolve(onSubmit(...)) evaluates onSubmit BEFORE the promise
+  // exists, so a synchronous throw escaped the .catch that displays errors and
+  // vanished into the console. Every existing caller returned a promise, so it
+  // stayed hidden until one validated its input inline.
+  assert.match(script, /new Promise\(function \(resolve\) \{ resolve\(onSubmit\(values, changed\)\); \}\)/);
+  // Match the code shape, not the prose: the comment above the fix names the
+  // old form, and comments are part of this string.
+  assert.ok(!/Promise\.resolve\(onSubmit\(values, changed\)\)\.then/.test(script),
+    'the old shape would silently drop synchronous validation errors');
+});
+
+test('the Templates tab is registered and routed', () => {
+  const { ctx } = runPage(emptyRoutes);
+  assert.ok(ctx.TABS.some((t) => t[0] === 'templates'), 'tab must be listed');
+  assert.equal(typeof ctx.viewTemplates, 'function', 'and routed to a view');
+});
+
+test('a template card shows its tasks, not just a count', () => {
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.templateCard({
+    id: 1, name: 'Release', description: null, task_count: 2, created_at: '2026-01-01 00:00:00',
+    tasks: [
+      { title: 'Cut the {version} branch', priority: 'high', tags: ['release'], estimated_hours: 2 },
+      { title: 'Ship it', priority: 'low' },
+    ],
+  });
+  assert.match(html, /Cut the \{version\} branch/);
+  assert.match(html, /Ship it/);
+  assert.match(html, /varpill/, 'the placeholders should be surfaced on the card');
+  assert.match(html, /2h/, 'estimated hours');
+  assert.match(html, /release/, 'tags');
+});
+
+test('a template whose JSON could not be read says so instead of looking empty', () => {
+  const { ctx } = runPage(emptyRoutes);
+  const html = ctx.templateCard({
+    id: 2, name: 'Broken', task_count: 0, tasks: [], unreadable: true, created_at: 'x',
+  });
+  assert.match(html, /could not be read/);
+});

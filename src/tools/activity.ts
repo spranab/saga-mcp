@@ -37,7 +37,7 @@ export const definitions: Tool[] = [
   {
     name: 'tracker_session_diff',
     description:
-      'Show what changed since a given timestamp. Returns aggregated summary with counts by action and entity type, plus highlights of key changes. Call this at the start of a session to understand what happened since the last one.',
+      'What changed since a timestamp: counts by action and entity, plus the notable changes. Call it at the start of a session to catch up.',
     annotations: { title: 'Session Diff', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',

@@ -129,7 +129,7 @@ export const definitions: Tool[] = [
   {
     name: 'task_lock_description',
     description:
-      "Lock or unlock a task's description. While locked, task_update refuses to change it — a guard against rewriting the spec when you meant to add a comment. Everything else stays editable. Unlock only when a human asks, never to get past the refusal.",
+      "Lock or unlock a task's description. While locked, task_update refuses to change it — a guard against rewriting the spec when you meant to add a comment. Every other field still changes freely.",
     annotations: { title: 'Lock Task Description', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',

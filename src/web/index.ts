@@ -23,6 +23,7 @@ import { handlers as taskHandlers } from '../tools/tasks.js';
 import { handlers as subtaskHandlers } from '../tools/subtasks.js';
 import { handlers as noteHandlers } from '../tools/notes.js';
 import { handlers as commentHandlers } from '../tools/comments.js';
+import { handlers as templateHandlers } from '../tools/templates.js';
 import { handlers as dashboardHandlers } from '../tools/dashboard.js';
 
 /** Write tools the UI is allowed to invoke. Anything not listed is refused. */
@@ -48,6 +49,10 @@ const WRITE_TOOLS: Record<string, (args: Record<string, unknown>) => unknown> = 
   comment_add: commentHandlers.comment_add,
   comment_delete: commentHandlers.comment_delete,
   comment_restore: commentHandlers.comment_restore,
+  template_create: templateHandlers.template_create,
+  template_update: templateHandlers.template_update,
+  template_delete: templateHandlers.template_delete,
+  template_apply: templateHandlers.template_apply,
 };
 
 interface Options {
@@ -294,6 +299,10 @@ async function handle(
     const data = q.getOverview(db, pid, url.searchParams.get('include_archived') === '1');
     if (!data) return json(res, 404, { error: `Project ${pid} not found` });
     return json(res, 200, data);
+  }
+
+  if (req.method === 'GET' && path === '/api/templates') {
+    return json(res, 200, { templates: q.listTemplates(db) });
   }
 
   if (req.method === 'GET' && path === '/api/tasks') {

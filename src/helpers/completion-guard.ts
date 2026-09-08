@@ -99,5 +99,5 @@ export const FORCE_SCHEMA = {
   type: 'boolean' as const,
   default: false,
   description:
-    'Proceed despite unmet prerequisites. Only when a human decided the blocker no longer applies — never on your own initiative. Logged.',
+    'Proceed despite unmet prerequisites. Only when a human says the blocker no longer applies, never on your own initiative. Logged.',
 };

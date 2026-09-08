@@ -71,7 +71,7 @@ test('slimming measurably shrinks the payload', () => {
 
 test('every tool definition carries safety annotations', async () => {
   const defs = await loadDefinitions();
-  assert.equal(defs.length, 40);
+  assert.equal(defs.length, 41);
   for (const def of defs) {
     assert.ok(def.annotations, `${def.name} is missing annotations`);
     assert.equal(typeof def.annotations.readOnlyHint, 'boolean', `${def.name} readOnlyHint`);
@@ -97,6 +97,7 @@ test('tool descriptions do not creep — density is what this guards', async () 
   //   v1.9.0   35 tools  714 bytes/tool
   //   v1.10.0  38 tools  710 bytes/tool
   //   v1.13.0  40 tools  712 bytes/tool
+  //   v1.15.0  41 tools  705 bytes/tool
   // If this fails, a description grew. Trim it rather than raising the number.
   const defs = await loadDefinitions();
   const perTool = JSON.stringify(defs).length / defs.length;

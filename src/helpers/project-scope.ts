@@ -59,7 +59,7 @@ export function projectCount(db: Database.Database): number {
 export const PROJECT_ID_SCHEMA = {
   type: 'integer' as const,
   description:
-    'Scope to one project. Needed when a single database holds several projects; defaults to the SAGA_PROJECT env var if set, otherwise the whole database.',
+    'Scope to one project. Defaults to SAGA_PROJECT if set, else the whole database.',
 };
 
 /**

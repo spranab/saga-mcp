@@ -258,3 +258,30 @@ export function search(db: Database.Database, query: string, limit: number) {
       .all(pattern, pattern, limit),
   };
 }
+
+/**
+ * Templates, with their task definitions parsed.
+ *
+ * template_data is stored as JSON text; the page needs the tasks themselves to
+ * show what a template creates (#44), so parse here rather than making every
+ * caller do it. A template whose JSON is somehow unparseable is reported with
+ * an empty task list instead of taking the whole page down.
+ */
+export function listTemplates(db: Database.Database) {
+  const rows = db
+    .prepare('SELECT * FROM templates ORDER BY name COLLATE NOCASE')
+    .all() as Array<Record<string, unknown>>;
+  return rows.map((row) => {
+    const { template_data, ...rest } = row;
+    let tasks: unknown[] = [];
+    let broken = false;
+    try {
+      const parsed = JSON.parse((template_data as string) || '[]');
+      if (Array.isArray(parsed)) tasks = parsed;
+      else broken = true;
+    } catch {
+      broken = true;
+    }
+    return { ...rest, tasks, task_count: tasks.length, ...(broken ? { unreadable: true } : {}) };
+  });
+}

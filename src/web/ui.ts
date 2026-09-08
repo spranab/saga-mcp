@@ -248,6 +248,12 @@ body.resizing { cursor: ew-resize; user-select: none; }
 }
 .filterrow .scopetoggle { flex: none; cursor: pointer; white-space: nowrap; color: var(--muted); }
 .checkcount { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.tmpl-task { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px;
+  border-bottom: 1px solid var(--border); }
+.tmpl-task:last-child { border-bottom: none; }
+.tmpl-task .tdesc { color: var(--muted); font-size: 12px; margin-left: 24px; padding-bottom: 4px; }
+.varpill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.jsonarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; min-height: 220px; }
 .checkrow span { flex: 1; min-width: 0; }
 .sub .handle { cursor: grab; color: var(--muted); user-select: none; font-size: 12px; }
 /* One control per subtask carrying its whole state: todo / in progress / done,
@@ -350,7 +356,7 @@ var S = { projects: [], projectId: null, tab: 'overview', overview: null, tasks:
           epicOpen: {}, task: null, showDeleted: false, query: '', readOnly: false,
           showArchived: false, hidden: { archived_epics: 0, removed_tasks: 0 } };
 
-var TABS = [['overview','Overview'],['board','Board'],['epics','Epics'],['notes','Notes'],['activity','Activity']];
+var TABS = [['overview','Overview'],['board','Board'],['epics','Epics'],['notes','Notes'],['templates','Templates'],['activity','Activity']];
 var TASK_STATUS = ['todo', 'in_progress', 'review', 'blocked', 'done'];
 var EPIC_STATUS = ['planned', 'in_progress', 'completed', 'cancelled'];
 var PROJECT_STATUS = ['active', 'on_hold', 'completed', 'archived'];
@@ -621,7 +627,8 @@ function modal(title, fields, submitLabel, onSubmit) {
     var v = f.value === null || f.value === undefined ? '' : f.value;
     h += '<div class="field"><label for="f_' + f.key + '">' + esc(f.label) + '</label>';
     if (f.type === 'textarea') {
-      h += '<textarea id="f_' + f.key + '" name="' + f.key + '" placeholder="' +
+      h += '<textarea id="f_' + f.key + '" name="' + f.key + '"' +
+           (f.className ? ' class="' + esc(f.className) + '"' : '') + ' placeholder="' +
            esc(f.placeholder || '') + '">' + esc(v) + '</textarea>';
     } else if (f.type === 'select') {
       h += '<select id="f_' + f.key + '" name="' + f.key + '">';
@@ -768,7 +775,11 @@ function modal(title, fields, submitLabel, onSubmit) {
     errNode.hidden = true;
     var btn = m.querySelector('button[type=submit]');
     btn.disabled = true;
-    Promise.resolve(onSubmit(values, changed)).then(function () {
+    // Note the shape: Promise.resolve(onSubmit(...)) would let a SYNCHRONOUS
+    // throw escape before the promise exists, so the catch below never ran and
+    // the message vanished into the console. Every caller happened to return a
+    // promise, so it stayed hidden until one validated its input inline.
+    new Promise(function (resolve) { resolve(onSubmit(values, changed)); }).then(function () {
       closeModal();
     }).catch(function (e) {
       btn.disabled = false;
@@ -866,7 +877,7 @@ function render() {
   el('roBadge').hidden = !S.readOnly;
   if (S.query) return renderSearch();
   var fns = { overview: viewOverview, board: viewBoard, epics: viewEpics,
-              notes: viewNotes, activity: viewActivity };
+              notes: viewNotes, templates: viewTemplates, activity: viewActivity };
   (fns[S.tab] || viewOverview)();
 }
 
@@ -1068,6 +1079,124 @@ function viewNotes() {
     S.notes = r.notes;
   }).catch(fail);
 }
+
+/* ---------- templates ---------- */
+
+/**
+ * Templates were invisible from the UI and uneditable from anywhere (#44):
+ * template_list reported only a count, and changing one meant delete plus
+ * recreate, which loses the id. This tab shows what a template actually
+ * creates and edits it in place.
+ *
+ * Templates are not scoped to a project -- they live in the database as a
+ * whole -- so the tab says so rather than letting someone assume otherwise.
+ */
+function templateVariables(t) {
+  var seen = {}, out = [];
+  (t.tasks || []).forEach(function (task) {
+    var text = String(task.title || '') + ' ' + String(task.description || '');
+    // No backslash escapes: this file is one template literal, where \w
+    // collapses to a literal w and the regex silently matches nothing.
+    var m, re = new RegExp('[{]([A-Za-z0-9_]+)[}]', 'g');
+    while ((m = re.exec(text))) {
+      if (!seen[m[1]]) { seen[m[1]] = true; out.push(m[1]); }
+    }
+  });
+  return out;
+}
+
+function templateTaskLine(task) {
+  return '<div class="tmpl-task">' +
+      '<span class="dot st-todo"></span>' +
+      '<span class="grow ellip">' + esc(task.title) + '</span>' +
+      (task.estimated_hours ? '<span class="muted" style="font-size:12px">' +
+        esc(task.estimated_hours) + 'h</span>' : '') +
+      (task.tags && task.tags.length
+        ? task.tags.map(function (x) { return '<span class="pill pr-medium">' + esc(x) + '</span>'; }).join(' ')
+        : '') +
+      pill('pr', task.priority || 'medium') +
+    '</div>' +
+    (task.description ? '<div class="tdesc">' + esc(task.description) + '</div>' : '');
+}
+
+function templateCard(t) {
+  var vars = templateVariables(t);
+  var ed = canEdit();
+  return '<div class="card" data-template-card="' + t.id + '">' +
+    '<div class="row">' +
+      '<strong class="grow ellip">' + esc(t.name) + '</strong>' +
+      '<span class="pill pr-medium">' + t.task_count + (t.task_count === 1 ? ' task' : ' tasks') + '</span>' +
+      (vars.length
+        ? '<span class="pill pr-low varpill" title="Filled in when the template is applied">{' +
+          esc(vars.join('} {')) + '}</span>'
+        : '') +
+      '<span class="muted" style="font-size:12px">' + fmtDate(t.updated_at || t.created_at) + '</span>' +
+      (ed ? '<button class="btn" data-apply-template="' + t.id + '">Apply</button>' +
+            '<button class="btn" data-edit-template="' + t.id + '">Edit</button>' +
+            '<button class="btn" data-edit-template-tasks="' + t.id + '">Tasks</button>' +
+            '<button class="btn danger" data-del-template="' + t.id + '">Delete</button>' : '') +
+    '</div>' +
+    (t.unreadable
+      ? '<p class="err" style="margin-top:6px">The task list for this template could not be read. Edit the tasks to repair it.</p>'
+      : '') +
+    (t.description ? '<div class="body md-body">' + md(t.description) + '</div>' : '') +
+    '<div class="tlist" style="margin-top:8px">' +
+      ((t.tasks || []).length
+        ? t.tasks.map(templateTaskLine).join('')
+        : '<div class="empty">No tasks in this template.</div>') +
+    '</div></div>';
+}
+
+function viewTemplates() {
+  el('view').innerHTML = '<p class="muted">Loading…</p>';
+  get('/api/templates').then(function (r) {
+    S.templates = r.templates;
+    var h = '<div class="toolbar">' +
+      (canEdit() ? '<button class="btn primary" id="newTemplate">+ Template</button>' : '') +
+      '<span class="muted">Templates are shared by every project in this database.</span></div>';
+    if (!r.templates.length) {
+      el('view').innerHTML = h + '<p class="empty">No templates yet.</p>';
+      return;
+    }
+    el('view').innerHTML = h + r.templates.map(templateCard).join('');
+  }).catch(fail);
+}
+
+/** The tasks field is edited as JSON, so check it before the round trip. */
+function parseTemplateTasks(text) {
+  var parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error('That is not valid JSON: ' + e.message);
+  }
+  if (!Array.isArray(parsed)) throw new Error('Tasks must be a JSON array, e.g. [{"title": "..."}].');
+  if (!parsed.length) throw new Error('A template needs at least one task.');
+  parsed.forEach(function (task, i) {
+    if (!task || typeof task !== 'object' || Array.isArray(task)) {
+      throw new Error('Task ' + (i + 1) + ' is not an object.');
+    }
+    if (!task.title || !String(task.title).trim()) {
+      throw new Error('Task ' + (i + 1) + ' needs a title.');
+    }
+  });
+  return parsed;
+}
+
+// Built from an array so this source carries no escape sequences: the page is
+// one template literal, where a written newline escape would collapse into an
+// actual newline and break the emitted script.
+var TEMPLATE_EXAMPLE = [
+  '[',
+  '  {',
+  '    "title": "Do the thing for {feature}",',
+  '    "description": "optional",',
+  '    "priority": "medium",',
+  '    "estimated_hours": 2,',
+  '    "tags": ["optional"]',
+  '  }',
+  ']'
+].join(String.fromCharCode(10));
 
 /* ---------- activity ---------- */
 
@@ -1559,6 +1688,99 @@ document.addEventListener('click', function (ev) {
       args.force = true;
     }
     return act('subtask_update', args).then(function () { return refresh(); }).catch(oops);
+  }
+
+  /* ---------- templates (#44) ---------- */
+
+  function templateById(id) {
+    return (S.templates || []).filter(function (x) { return x.id === id; })[0];
+  }
+
+  if (target.id === 'newTemplate') {
+    return modal('New template', [
+      { key: 'name', label: 'Name', required: true, placeholder: 'Release checklist' },
+      { key: 'description', label: 'Description', type: 'textarea' },
+      { key: 'tasks', label: 'Tasks (JSON)', type: 'textarea', value: TEMPLATE_EXAMPLE,
+        className: 'jsonarea' },
+    ], 'Create', function (values) {
+      var tasks = parseTemplateTasks(values.tasks);
+      return act('template_create', {
+        name: values.name, description: values.description || null, tasks: tasks,
+      }).then(function () { toast('Template created'); return viewTemplates(); });
+    });
+  }
+
+  var editTmpl = target.closest('[data-edit-template]');
+  if (editTmpl) {
+    var tmpl = templateById(Number(editTmpl.dataset.editTemplate));
+    if (!tmpl) return;
+    return modal('Edit ' + tmpl.name, [
+      { key: 'name', label: 'Name', required: true, value: tmpl.name },
+      { key: 'description', label: 'Description', type: 'textarea', value: tmpl.description },
+    ], 'Save', function (values, changed) {
+      if (!Object.keys(changed).length) return Promise.resolve();
+      // Send only what moved, so the id and the tasks are untouched -- the
+      // whole point of editing rather than delete-and-recreate.
+      var args = { id: tmpl.id };
+      for (var k in changed) args[k] = changed[k];
+      return act('template_update', args)
+        .then(function () { toast('Template updated'); return viewTemplates(); });
+    });
+  }
+
+  var editTasks = target.closest('[data-edit-template-tasks]');
+  if (editTasks) {
+    var tt = templateById(Number(editTasks.dataset.editTemplateTasks));
+    if (!tt) return;
+    return modal('Tasks in ' + tt.name, [
+      { key: 'tasks', label: 'One object per task. {placeholders} are filled in on apply.',
+        type: 'textarea', className: 'jsonarea',
+        value: JSON.stringify(tt.tasks || [], null, 2) },
+    ], 'Save', function (values) {
+      var tasks = parseTemplateTasks(values.tasks);
+      return act('template_update', { id: tt.id, tasks: tasks })
+        .then(function () { toast('Tasks updated'); return viewTemplates(); });
+    });
+  }
+
+  var applyTmpl = target.closest('[data-apply-template]');
+  if (applyTmpl) {
+    var at = templateById(Number(applyTmpl.dataset.applyTemplate));
+    if (!at) return;
+    var epics = ((S.overview && S.overview.epics) || []).map(function (e) {
+      return { value: e.id, text: e.name };
+    });
+    if (!epics.length) return toast('This project has no epic to apply it to', true);
+
+    // One field per {placeholder} the template actually uses, rather than
+    // asking for a blob of key/value pairs.
+    var vars = templateVariables(at);
+    var fields = [{ key: 'epic_id', label: 'Add the tasks to', type: 'select', options: epics,
+                    value: epics[0].value }];
+    vars.forEach(function (v) {
+      fields.push({ key: 'var_' + v, label: v, placeholder: 'value for {' + v + '}' });
+    });
+
+    return modal('Apply ' + at.name, fields, 'Create ' + at.task_count +
+        (at.task_count === 1 ? ' task' : ' tasks'), function (values) {
+      var variables = {};
+      vars.forEach(function (v) { if (values['var_' + v]) variables[v] = values['var_' + v]; });
+      return act('template_apply', {
+        template_id: at.id, epic_id: Number(values.epic_id), variables: variables,
+      }).then(function (r) {
+        toast((r && r.message) || 'Template applied');
+        return refresh();
+      });
+    });
+  }
+
+  var delTmpl = target.closest('[data-del-template]');
+  if (delTmpl) {
+    var dt = templateById(Number(delTmpl.dataset.delTemplate));
+    if (!dt) return;
+    if (!confirm('Delete the template ' + dt.name + '? Tasks already created from it are untouched.')) return;
+    return act('template_delete', { id: dt.id })
+      .then(function () { toast('Template deleted'); return viewTemplates(); }).catch(oops);
   }
 
   if (target.id === 'editTaskDeps') {
