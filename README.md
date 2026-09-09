@@ -77,6 +77,14 @@ tracker_next({})
 One recommendation with the reason. For the whole picture instead, `tracker_dashboard({})` returns
 stats, epics, blocked and overdue tasks, recent activity and notes, with a summary on top.
 
+And when you would rather look than ask, `saga-web` puts the same database in a browser:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/overview-dark.png">
+  <img alt="The saga-web overview: task counts, per-epic progress, blocked and overdue work" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/overview-light.png">
+</picture>
+
+
 ---
 
 ## What you get
@@ -270,6 +278,14 @@ Task definitions are checked when written rather than when applied, so a bad pri
 title is refused up front instead of failing later against an epic you have already chosen.
 Templates live in the database as a whole, not inside one project.
 
+The Templates tab shows what each one creates, and the `{placeholders}` it will ask for:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/templates-dark.png">
+  <img alt="The templates tab, showing each template with the tasks it creates" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/templates-light.png">
+</picture>
+
+
 ---
 
 ## Getting old work out of the way
@@ -392,9 +408,21 @@ Six tabs:
 
 - **Overview** — stats, per-epic progress, blocked and overdue tasks
 - **Board** — kanban across the five task statuses; drag a card to change its status
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/board-dark.png">
+  <img alt="The board: five columns, one per task status" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/board-light.png">
+</picture>
+
 - **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an
   agent just wrote. Blocked tasks carry a ⛔ naming what they wait on, finished ones are struck
   through, and tasks drag into order
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/epics-dark.png">
+  <img alt="The epic tree, with blocked tasks marked and finished ones struck through" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/epics-light.png">
+</picture>
+
 - **Notes** — decisions, context and blockers
 - **Templates** — every template with the tasks it creates and the `{placeholders}` it uses; edit
   the details, edit the task list, apply it to an epic, or delete it
@@ -406,6 +434,12 @@ And throughout:
   drag subtasks into order, and set which subtasks wait on which. Each subtask has one control
   carrying its whole state (todo / in progress / done, or blocked), and the drawer resizes by
   dragging its edge
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/task-dark.png">
+  <img alt="The task drawer: subtasks with their state, dependencies both ways, and the comment thread" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/task-light.png">
+</picture>
+
 - **Markdown** — descriptions, comments and notes render headings, tables, lists, code and links.
   Agent-written content is escaped before any markdown rule runs, so raw HTML can never reach the
   page, and only http/https/mailto links are followed
