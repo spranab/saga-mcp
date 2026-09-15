@@ -242,6 +242,19 @@ test('a taken explicit port fails loudly rather than moving', async () => {
   await assert.rejects(startWeb(['--port', '4457']), /already in use|exited with 1/);
 });
 
+test('archived epics sort last, whatever their place in the manual order', async () => {
+  // The UI draws one "archived" divider at the first archived row, so an
+  // archived epic sitting mid-order would sweep the live ones below it under
+  // that heading (#54).
+  const tools = await loadTools(dbPath);
+  const p = tools.project_create({ name: 'Ordering' });
+  const first = tools.epic_create({ project_id: p.id, name: 'Oldest' });
+  tools.epic_create({ project_id: p.id, name: 'Newest' });
+  tools.epic_archive({ id: first.id });
+  const o = await (await fetch(`${editable.base}/api/overview?project_id=${p.id}&include_archived=1`)).json();
+  assert.deepEqual(o.epics.map((e) => e.name), ['Newest', 'Oldest']);
+});
+
 test('a missing database is refused, not created', async () => {
   const child = spawn(process.execPath, ['dist/web/index.js', join(root, 'definitely-not-here.db')], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],

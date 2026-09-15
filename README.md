@@ -301,7 +301,9 @@ task_delete({ id: 12, reason: "should have been a subtask" })
 Archiving is deliberately **not** the `cancelled` status: `cancelled` means "we decided not to do
 this", while most of what you want to archive is *completed*. Archived epics and their tasks
 disappear from `epic_list`, `tracker_dashboard`, `task_list` and `tracker_search` — including the
-statistics, not just the lists — and come back with `include_archived`.
+statistics, not just the lists — and come back with `include_archived`. In the web UI both the
+Overview and the Epics tab archive an epic, hide archived ones by default, and share one
+show-archived switch.
 
 Nothing vanishes silently. The dashboard says what it left out:
 
@@ -416,11 +418,12 @@ Six tabs:
 
 - **Epics** — the full Epic → Task → Subtask tree, which is the fastest way to review a spec an
   agent just wrote. Blocked tasks carry a ⛔ naming what they wait on, finished ones are struck
-  through, and tasks drag into order
+  through, and tasks drag into order. Epics read the same way — bold while in progress, struck
+  through once completed or cancelled — and each one archives from here as well as the Overview
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/epics-dark.png">
-  <img alt="The epic tree, with blocked tasks marked and finished ones struck through" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/epics-light.png">
+  <img alt="The epic tree, with epics and tasks struck through once finished and blocked tasks marked" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/epics-light.png">
 </picture>
 
 - **Notes** — decisions, context and blockers
@@ -652,7 +655,7 @@ DB_PATH=./test.db npm start
 # the web UI against the same database
 node dist/web/index.js ./test.db --open
 
-npm test     # 298 unit and integration tests, no network
+npm test     # 326 unit and integration tests, no network
 npm run e2e  # release gate: packs a tarball, installs it, drives the real binaries
 ```
 
@@ -668,20 +671,20 @@ step, and it is triggered by publishing a GitHub release, not by pushing a tag.
 ```bash
 # 1. bump the version in package.json, manifest.json and server.json, then merge
 # 2. tag it. Nothing is published yet.
-git tag -a v1.16.0 -m "v1.16.0 — ..." && git push origin v1.16.0
+git tag -a v1.17.0 -m "v1.17.0 — ..." && git push origin v1.17.0
 
 # 3. verify the tagged build: this packs the tarball that would be published
 #    and drives it end to end, including an upgrade from an older database.
 npm run e2e
 
 # 4. publish the release. This fires the publish workflow.
-gh release create v1.16.0 --notes-file notes.md
+gh release create v1.17.0 --notes-file notes.md
 ```
 
 The workflow re-runs the suite against the tagged commit, refuses a tag that does not match
 `package.json`, refuses a version already on npm, and sends a GitHub *pre-release* to the `next`
 dist-tag so it never becomes what `npm install saga-mcp` gives people. A failed publish can be
-retried against the same tag with `gh workflow run "Publish to npm" -f tag=v1.16.0`.
+retried against the same tag with `gh workflow run "Publish to npm" -f tag=v1.17.0`.
 
 ---
 

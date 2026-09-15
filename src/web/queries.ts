@@ -57,6 +57,9 @@ export function getOverview(db: Database.Database, projectId: number, includeArc
     )
     .get(projectId);
 
+  // Archived epics sort last whatever their place in the manual order: the UI
+  // draws one "archived" divider at the first archived row, so an archived epic
+  // sitting mid-order would sweep every live epic below it under that heading.
   const epics = db
     .prepare(
       `SELECT e.*,
@@ -70,7 +73,7 @@ export function getOverview(db: Database.Database, projectId: number, includeArc
       LEFT JOIN tasks t ON t.epic_id = e.id${liveTasks}
       WHERE e.project_id = ?${archivedSql}
       GROUP BY e.id
-      ORDER BY e.sort_order, e.created_at`
+      ORDER BY e.archived, e.sort_order, e.created_at`
     )
     .all(projectId);
 

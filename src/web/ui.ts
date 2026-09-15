@@ -881,6 +881,47 @@ function render() {
   (fns[S.tab] || viewOverview)();
 }
 
+/* ---------- epic chrome, shared by the overview and the epics tab ---------- */
+
+/**
+ * An epic's name carries its status the way a task's title does (#54, reported
+ * by @rusak47). Completed and cancelled epics read struck through and dimmed,
+ * exactly like a done task (#49); bold is kept for the work actually in
+ * progress. The status pill used to be the only signal, so down a long list a
+ * finished epic and a planned one looked alike.
+ */
+function epicName(e) {
+  var retired = e.status === 'completed' || e.status === 'cancelled';
+  var name = esc(e.name);
+  return '<span class="grow ellip' + (retired ? ' muted strike' : '') + '">' +
+    (e.status === 'in_progress' ? '<strong>' + name + '</strong>' : name) + '</span>';
+}
+
+/** The marker that says why an epic is missing from the default listings. */
+function archivedPill(e) {
+  return e.archived ? '<span class="pill pr-low" title="Hidden from listings">archived</span>' : '';
+}
+
+/** Archive/unarchive one epic. Every tab that lists epics offers it (#54). */
+function archiveButton(e) {
+  return '<button class="btn" data-archive-epic="' + e.id + '" data-archived="' + (e.archived ? 1 : 0) + '">' +
+    (e.archived ? 'Unarchive' : 'Archive') + '</button>';
+}
+
+/**
+ * The show/hide-archived switch. Archived epics stay out of the default view on
+ * every tab, so the tab that hides them has to be able to bring them back —
+ * otherwise a toggle on one tab silently changed what another one rendered.
+ */
+function archivedToggle() {
+  var o = S.overview || {};
+  var epics = (o.hidden && o.hidden.archived_epics) || 0;
+  var tasks = (o.hidden && o.hidden.removed_tasks) || 0;
+  if (!epics && !tasks) return '';
+  return '<button class="btn" id="toggleArchived">' + (S.showArchived ? 'Hide' : 'Show') + ' archived' +
+    (epics ? ' (' + epics + ')' : '') + '</button>';
+}
+
 /* ---------- overview ---------- */
 
 function viewOverview() {
@@ -902,14 +943,10 @@ function viewOverview() {
     '<div style="margin-top:10px">' + progressBar(s.completion_pct) + '</div>' +
     '</div>';
 
-  var hiddenEpics = (o.hidden && o.hidden.archived_epics) || 0;
-  var hiddenTasks = (o.hidden && o.hidden.removed_tasks) || 0;
+  var toggle = archivedToggle();
   h += '<h2>Epics <span class="muted">(' + o.epics.filter(function (e) { return !e.archived; }).length + ')</span>' +
        (canEdit() ? ' <button class="btn" id="newEpic">+ Epic</button>' : '') +
-       (hiddenEpics || hiddenTasks
-         ? ' <button class="btn" id="toggleArchived">' + (S.showArchived ? 'Hide' : 'Show') + ' archived' +
-           (hiddenEpics ? ' (' + hiddenEpics + ')' : '') + '</button>'
-         : '') + '</h2>';
+       (toggle ? ' ' + toggle : '') + '</h2>';
   if (!o.epics.length) h += '<p class="empty">No epics yet.</p>';
   var shownEpics = o.epics.slice();
   var archivedShown = false;
@@ -920,12 +957,11 @@ function viewOverview() {
       h += '<div class="hiddenbar"><hr>archived<hr></div>';
     }
     h += '<div class="card' + (e.archived ? ' archived' : '') + '" data-epic-open="' + e.id + '" style="cursor:pointer">' +
-      '<div class="row"><span class="grow ellip"><strong>' + esc(e.name) + '</strong></span>' +
+      '<div class="row">' + epicName(e) +
       (e.branch ? '<span class="pill pr-low" title="branch">⎇ ' + esc(e.branch) + '</span> ' : '') +
-      (e.archived ? '<span class="pill pr-low" title="Hidden from listings">archived</span> ' : '') +
+      archivedPill(e) +
       pill('pr', e.priority) + ' ' + pill('st', e.status) +
-      (canEdit() ? ' <button class="btn" data-archive-epic="' + e.id + '" data-archived="' + (e.archived ? 1 : 0) + '">' +
-        (e.archived ? 'Unarchive' : 'Archive') + '</button>' : '') + '</div>' +
+      (canEdit() ? archiveButton(e) : '') + '</div>' +
       '<div class="row" style="margin-top:8px"><span class="grow">' + progressBar(e.completion_pct) + '</span>' +
       '<span class="muted" style="font-size:12px">' + (e.done_count || 0) + '/' + (e.task_count || 0) +
       (e.blocked_count ? ' · ' + e.blocked_count + ' blocked' : '') + '</span></div></div>';
@@ -1019,23 +1055,34 @@ function viewEpics() {
   var h = '<div class="toolbar">' +
     (canEdit() ? '<button class="btn primary" id="newEpic">+ Epic</button>' : '') +
     '<button class="btn" id="expandAll">Expand all</button>' +
-    '<button class="btn" id="collapseAll">Collapse all</button></div>';
+    '<button class="btn" id="collapseAll">Collapse all</button>' +
+    archivedToggle() + '</div>';
   if (!o.epics.length) h += '<p class="empty">No epics yet.</p>';
 
+  var archivedShown = false;
   o.epics.forEach(function (e) {
     var open = S.epicOpen[e.id];
     var list = byEpic[e.id] || [];
-    h += '<div class="card"><div class="epic-head">' +
+    // Archived epics sort below a divider rather than mixing in, as on the overview.
+    if (e.archived && !archivedShown) {
+      archivedShown = true;
+      h += '<div class="hiddenbar"><hr>archived<hr></div>';
+    }
+    h += '<div class="card' + (e.archived ? ' archived' : '') + '"><div class="epic-head">' +
       '<span class="caret grow row" data-toggle="' + e.id + '" style="cursor:pointer">' +
         '<span class="muted">' + (open ? '▾' : '▸') + '</span>' +
-        '<span class="grow ellip"><strong>' + esc(e.name) + '</strong></span></span>' +
+        epicName(e) + '</span>' +
       (e.branch ? '<span class="pill pr-low">⎇ ' + esc(e.branch) + '</span>' : '') +
+      archivedPill(e) +
       (e.blocked_count ? '<span class="pill blockedpill" title="' + e.blocked_count +
         ' task(s) in this epic are blocked">\u26D4 ' + e.blocked_count + '</span>' : '') +
       pill('pr', e.priority) + pill('st', e.status) +
       '<span class="muted" style="font-size:12px">' + (e.done_count || 0) + '/' + (e.task_count || 0) + '</span>' +
       (canEdit() ? '<button class="btn" data-edit-epic="' + e.id + '">Edit</button>' +
-                   '<button class="btn" data-new-task="' + e.id + '">+ Task</button>' : '') +
+                   // An archived epic takes no new work: a task added here would
+                   // vanish from every listing the moment it was saved.
+                   (e.archived ? '' : '<button class="btn" data-new-task="' + e.id + '">+ Task</button>') +
+                   archiveButton(e) : '') +
       '</div>';
     if (open) {
       h += '<div class="epic-body">' +
@@ -1234,7 +1281,7 @@ function renderSearch() {
       total += r.epics.length;
       h += '<h2>Epics</h2>' + r.epics.map(function (e) {
         return '<div class="tline" data-goto-epic="' + e.id + '" data-project="' + e.project_id + '">' +
-          '<span class="dot st-' + esc(e.status) + '"></span><span class="grow ellip">' + esc(e.name) + '</span>' +
+          '<span class="dot st-' + esc(e.status) + '"></span>' + epicName(e) +
           '<span class="muted" style="font-size:12px">' + esc(e.project_name) + '</span></div>';
       }).join('');
     }
