@@ -4,6 +4,7 @@ import { resolveProjectId, activityScopeClause, repeatId, PROJECT_ID_SCHEMA } fr
 import { slimList } from '../helpers/slim.js';
 import { asIdList } from '../helpers/coerce.js';
 import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
+import { lockOnProgress } from '../helpers/description-lock.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { reevaluateDownstream } from './tasks.js';
 import type { ToolHandler } from '../types.js';
@@ -205,6 +206,11 @@ function handleTaskBatchUpdate(args: Record<string, unknown>) {
       const newRow = db
         .prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? RETURNING *`)
         .get(...params) as Record<string, unknown>;
+
+      // A batch is not a way around the auto-lock either (#53).
+      if (lockOnProgress(db, id, newRow.title as string, oldRow.status as string, status)) {
+        newRow.description_locked = 1;
+      }
 
       // Log status changes
       if (status && oldRow.status !== status) {

@@ -99,7 +99,7 @@ test('the core surface is described accurately', async () => {
 });
 
 test('the settings table documents every environment variable the server reads', () => {
-  for (const name of ['DB_PATH', 'SAGA_PROJECT', 'SAGA_TOOLS']) {
+  for (const name of ['DB_PATH', 'SAGA_PROJECT', 'SAGA_TOOLS', 'SAGA_DESCRIPTION_LOCK']) {
     assert.match(readme, new RegExp('\\|\\s*`' + name + '`'), name + ' is missing from the table');
   }
 });

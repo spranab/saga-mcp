@@ -38,7 +38,8 @@
       "env": {
         "DB_PATH": "${user_config.db_path}",
         "SAGA_TOOLS": "${user_config.tool_surface}",
-        "SAGA_PROJECT": "${user_config.project_scope}"
+        "SAGA_PROJECT": "${user_config.project_scope}",
+        "SAGA_DESCRIPTION_LOCK": "${user_config.description_lock}"
       }
     }
   },
@@ -102,6 +103,13 @@
       "type": "string",
       "title": "Project Scope",
       "description": "Optional. When one database is shared by several projects, set this to a project id or name so tools only see that project. Leave blank to read across the whole database.",
+      "required": false
+    },
+    "description_lock": {
+      "type": "string",
+      "title": "Lock Descriptions On Progress",
+      "description": "Set to \"on_progress\" to lock a task's description as soon as work starts on it, so an agent records progress in comments instead of rewriting the spec. Leave blank to lock tasks by hand instead.",
+      "default": "",
       "required": false
     },
     "tool_surface": {
