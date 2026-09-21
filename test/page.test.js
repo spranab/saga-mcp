@@ -326,12 +326,23 @@ test('the drawer pins its action row to the top of its own scroll', () => {
   assert.ok(script.includes('class="row drawer-actions"'), 'the drawer must use the pinned row');
 });
 
-test('the pinned row is opaque, so content cannot scroll through it', () => {
-  // A sticky bar with no background lets the text underneath read through it,
-  // which is worse than the buttons being out of reach.
-  const rule = ruleOf('.drawer-actions');
-  assert.equal(rule.background, 'var(--panel)', 'a see-through bar is worse than a hidden button');
-  assert.ok(rule.margin?.includes('-'), 'negative margins span the drawer padding, leaving no gutter');
+test('only the buttons are opaque, not the width of the whole panel', () => {
+  // The first cut painted the whole row, which made it a bar across the panel
+  // and hid the line scrolling under it — the task title, usually. @rusak47,
+  // on the released version: "no one reads the text behind buttons."
+  const row = ruleOf('.drawer-actions');
+  const pad = ruleOf('.drawer-actions .actionpad');
+  assert.ok(!row.background, 'the row must not paint a bar across the drawer');
+  assert.ok(!row['border-bottom'], 'nor draw an edge across it');
+  assert.equal(pad.background, 'var(--panel)', 'the buttons still need something opaque behind them');
+  assert.ok(script.includes('class="actionpad"'), 'the drawer must group its buttons on that pad');
+});
+
+test('text the row no longer hides can still be clicked', () => {
+  // A transparent strip that kept swallowing clicks would be worse than the
+  // bar it replaced: the blocked-by links sit directly under it.
+  assert.equal(ruleOf('.drawer-actions')['pointer-events'], 'none');
+  assert.equal(ruleOf('.drawer-actions .actionpad')['pointer-events'], 'auto');
 });
 
 test('a long form keeps its own submit button in view', () => {
