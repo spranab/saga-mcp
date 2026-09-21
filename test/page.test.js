@@ -32,8 +32,10 @@ function element() {
 /** Run the page with stubs, and a fetch that answers from `routes`. */
 function runPage(routes = {}, hash = '') {
   const calls = [];
+  // Keyed by id, so a view that writes into el('view') can be read back.
+  const nodes = {};
   const doc = {
-    getElementById: () => element(),
+    getElementById: (id) => (nodes[id] ||= element()),
     querySelector: () => null,
     querySelectorAll: () => [],
     createElement: () => element(),
@@ -69,7 +71,7 @@ function runPage(routes = {}, hash = '') {
   ctx.window.document = doc;
   createContext(ctx);
   runInContext(script, ctx);
-  return { ctx, calls, listeners, location };
+  return { ctx, calls, listeners, location, nodes };
 }
 
 const emptyRoutes = { '/api/projects': { projects: [], db_path: '/tmp/x.tracker.db', read_only: false } };
@@ -179,6 +181,116 @@ test('the task drawer offers a refresh control', () => {
 test('every write still goes through the guarded action endpoint', () => {
   assert.ok(script.includes("'/api/action'"));
   assert.ok(script.includes("'x-saga-ui': '1'"), 'the CSRF header must not be dropped');
+});
+
+/* ---------- epic listings (#54) ---------- */
+
+/** Run one view function over stubbed epics, and return the HTML it wrote. */
+function renderEpics(view, epics, opts = {}) {
+  const { ctx, nodes } = runPage(emptyRoutes);
+  ctx.S.readOnly = opts.readOnly ?? false;
+  ctx.S.showArchived = opts.showArchived ?? false;
+  ctx.S.tasks = opts.tasks ?? [];
+  ctx.S.overview = {
+    project: { id: 1, name: 'P', status: 'active' },
+    stats: { completion_pct: 0 },
+    epics,
+    overdue_tasks: [],
+    blocked_tasks: [],
+    hidden: opts.hidden ?? { archived_epics: 0, removed_tasks: 0 },
+  };
+  ctx[view]();
+  return nodes.view.innerHTML;
+}
+
+const live = { id: 1, name: 'Billing core', status: 'in_progress', priority: 'high' };
+const shelved = { id: 2, name: 'Legacy imports', status: 'completed', priority: 'low', archived: 1 };
+const withArchived = { showArchived: true, hidden: { archived_epics: 1, removed_tasks: 0 } };
+
+test('the epics tab can archive an epic without a detour through the overview', () => {
+  const html = renderEpics('viewEpics', [live]);
+  assert.match(html, /data-archive-epic="1" data-archived="0">Archive<\/button>/);
+});
+
+test('an archived epic on the epics tab is marked, and can be brought back', () => {
+  const html = renderEpics('viewEpics', [shelved], withArchived);
+  assert.match(html, /<div class="card archived">/, 'the card must look archived');
+  assert.match(html, /title="Hidden from listings">archived<\/span>/, 'and say why it is hidden');
+  assert.match(html, /data-archive-epic="2" data-archived="1">Unarchive<\/button>/);
+});
+
+test('archived epics fall below a divider rather than mixing in', () => {
+  const html = renderEpics('viewEpics', [live, shelved], withArchived);
+  const divider = html.indexOf('hiddenbar');
+  assert.ok(divider > -1, 'the epics tab needs the same divider the overview draws');
+  assert.ok(html.indexOf('Billing core') < divider, 'live epics belong above it');
+  assert.ok(html.indexOf('Legacy imports') > divider, 'archived ones below');
+});
+
+test('both epic listings offer the same show-archived switch', () => {
+  const opts = { hidden: { archived_epics: 2, removed_tasks: 0 } };
+  for (const view of ['viewOverview', 'viewEpics']) {
+    assert.match(renderEpics(view, [live], opts), /id="toggleArchived">Show archived \(2\)</, view);
+  }
+});
+
+test('with nothing hidden, neither listing shows the switch', () => {
+  for (const view of ['viewOverview', 'viewEpics']) {
+    assert.ok(!renderEpics(view, [live]).includes('toggleArchived'), view);
+  }
+});
+
+test('an epic reads as finished wherever it is listed', () => {
+  // The status pill was the only signal, so a shipped epic and a planned one
+  // looked alike down a long list. Strike the finished ones as tasks are
+  // struck (#49), and keep bold for the work actually in progress.
+  const epics = [
+    { id: 1, name: 'Planned work', status: 'planned', priority: 'low' },
+    { id: 2, name: 'Live work', status: 'in_progress', priority: 'high' },
+    { id: 3, name: 'Shipped work', status: 'completed', priority: 'low' },
+    { id: 4, name: 'Dropped work', status: 'cancelled', priority: 'low' },
+  ];
+  for (const view of ['viewOverview', 'viewEpics']) {
+    const html = renderEpics(view, epics);
+    assert.match(html, /<strong>Live work<\/strong>/, view + ': in-progress stays bold');
+    assert.ok(!html.includes('<strong>Planned work</strong>'), view + ': bold is not the default');
+    assert.match(html, /muted strike">Shipped work</, view + ': completed is struck through');
+    assert.match(html, /muted strike">Dropped work</, view + ': cancelled is struck through');
+    assert.ok(!/strike">Live work/.test(html), view + ': live work is not struck through');
+  }
+});
+
+test('an archived epic does not invite new tasks', () => {
+  // A task created under an archived epic would vanish the moment it was saved.
+  assert.match(renderEpics('viewEpics', [live]), /data-new-task="1"/);
+  assert.ok(!renderEpics('viewEpics', [shelved], withArchived).includes('data-new-task'));
+});
+
+test('a search hit shows an epic the same way the listings do', async () => {
+  // The recurring defect in this UI is a treatment applied to one renderer and
+  // not its siblings (#37, #49), so the search row shares the same helper.
+  const { ctx, nodes } = runPage({
+    ...emptyRoutes,
+    '/api/search': {
+      tasks: [], notes: [], projects: [],
+      epics: [
+        { id: 3, name: 'Shipped work', status: 'completed', project_id: 1, project_name: 'P' },
+        { id: 4, name: 'Live work', status: 'in_progress', project_id: 1, project_name: 'P' },
+      ],
+    },
+  });
+  ctx.S.query = 'work';
+  ctx.renderSearch();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(nodes.view.innerHTML, /muted strike">Shipped work/);
+  assert.match(nodes.view.innerHTML, /<strong>Live work<\/strong>/);
+});
+
+test('a read-only page offers no archive controls at all', () => {
+  for (const view of ['viewOverview', 'viewEpics']) {
+    const html = renderEpics(view, [live, shelved], { ...withArchived, readOnly: true });
+    assert.ok(!html.includes('data-archive-epic'), view);
+  }
 });
 
 /* ---------- CSS cascade ---------- */
