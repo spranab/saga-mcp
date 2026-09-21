@@ -47,21 +47,49 @@ export function getDb(): Database.Database {
   // stored verbatim, so the column held a string rather than an array. The UI
   // then rendered one pill per character and json_each tag filters matched
   // nothing. Repair what is recoverable, losslessly.
-  for (const table of ['projects', 'epics', 'tasks', 'notes']) {
+  // Table names cannot be bound as query parameters, so each statement below
+  // is a fully static string (no runtime interpolation) for every allowed table.
+  const TAG_REPAIR_SQL: Record<string, string[]> = {
+    projects: [
+      `UPDATE projects SET tags = json_extract(tags, '$')
+       WHERE json_valid(tags) AND json_type(tags) = 'text'
+         AND json_valid(json_extract(tags, '$'))
+         AND json_type(json_extract(tags, '$')) = 'array'`,
+      `UPDATE projects SET tags = json_array(json_extract(tags, '$'))
+       WHERE json_valid(tags) AND json_type(tags) = 'text'`,
+    ],
+    epics: [
+      `UPDATE epics SET tags = json_extract(tags, '$')
+       WHERE json_valid(tags) AND json_type(tags) = 'text'
+         AND json_valid(json_extract(tags, '$'))
+         AND json_type(json_extract(tags, '$')) = 'array'`,
+      `UPDATE epics SET tags = json_array(json_extract(tags, '$'))
+       WHERE json_valid(tags) AND json_type(tags) = 'text'`,
+    ],
+    tasks: [
+      `UPDATE tasks SET tags = json_extract(tags, '$')
+       WHERE json_valid(tags) AND json_type(tags) = 'text'
+         AND json_valid(json_extract(tags, '$'))
+         AND json_type(json_extract(tags, '$')) = 'array'`,
+      `UPDATE tasks SET tags = json_array(json_extract(tags, '$'))
+       WHERE json_valid(tags) AND json_type(tags) = 'text'`,
+    ],
+    notes: [
+      `UPDATE notes SET tags = json_extract(tags, '$')
+       WHERE json_valid(tags) AND json_type(tags) = 'text'
+         AND json_valid(json_extract(tags, '$'))
+         AND json_type(json_extract(tags, '$')) = 'array'`,
+      `UPDATE notes SET tags = json_array(json_extract(tags, '$'))
+       WHERE json_valid(tags) AND json_type(tags) = 'text'`,
+    ],
+  };
+
+  for (const table of Object.keys(TAG_REPAIR_SQL)) {
     try {
-      // A JSON string that is itself a JSON array — unwrap it.
-      db.exec(
-        `UPDATE ${table} SET tags = json_extract(tags, '$')
-         WHERE json_valid(tags) AND json_type(tags) = 'text'
-           AND json_valid(json_extract(tags, '$'))
-           AND json_type(json_extract(tags, '$')) = 'array'`
-      );
-      // Anything still stored as a bare string becomes a single-element array.
-      // Nothing is split or invented; the text is preserved exactly.
-      db.exec(
-        `UPDATE ${table} SET tags = json_array(json_extract(tags, '$'))
-         WHERE json_valid(tags) AND json_type(tags) = 'text'`
-      );
+      // A JSON string that is itself a JSON array — unwrap it. Anything still
+      // stored as a bare string becomes a single-element array. Nothing is
+      // split or invented; the text is preserved exactly.
+      for (const sql of TAG_REPAIR_SQL[table]) db.exec(sql);
     } catch { /* table may not exist yet on a fresh database */ }
   }
 
