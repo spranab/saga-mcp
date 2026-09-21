@@ -199,13 +199,24 @@ pre.body {
  * with the content: on a long task, Refresh and Edit end up above the top of
  * the drawer and you have to scroll back for them (#57, reported by @rusak47).
  * Pin it to the drawer's own scrollport, the way the page header and tabs are
- * already pinned to the window. The negative margins let the bar span the
- * drawer's padding, so nothing scrolls past it through the gutters.
+ * already pinned to the window.
+ *
+ * The first cut painted the whole row, which turned it into a bar across the
+ * panel that swallowed the line scrolling under it — the task title, usually.
+ * @rusak47: "no one reads the text behind buttons". So the row positions and
+ * nothing else: only the buttons are opaque, and only they take clicks, or a
+ * transparent strip would eat clicks on the text it no longer hides.
  */
 .drawer-actions {
   position: sticky; top: 0; z-index: 1;
-  margin: -18px -20px 0; padding: 12px 20px 10px;
-  background: var(--panel); border-bottom: 1px solid var(--border);
+  margin: -18px -20px 0; padding: 10px 20px 4px;
+  pointer-events: none;
+}
+.drawer-actions .actionpad {
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: auto;
+  margin: -4px -6px; padding: 4px 6px; border-radius: 10px;
+  background: var(--panel);
 }
 /* The same thing at the other end: a long form scrolls its own buttons away. */
 .modal-actions {
@@ -1371,14 +1382,14 @@ function drawTask() {
   if (savedWidth) d.style.width = savedWidth;
 
   var h = '<div class="drawer-resize" id="drawerResize" title="Drag to resize"></div>' +
-    '<div class="row drawer-actions"><span class="grow"></span>' +
+    '<div class="row drawer-actions"><span class="grow"></span><span class="actionpad">' +
     '<button class="btn" id="refreshTask" title="Re-read this task from the database">⟳ Refresh</button>' +
     (ed && t.is_deleted ? '<button class="btn" id="restoreTask">Restore</button>' : '') +
     (ed && !t.is_deleted && t.status === 'todo'
       ? '<button class="btn danger" id="deleteTask" title="Remove this task — kept for the audit trail, restorable">Remove</button>'
       : '') +
     (ed ? '<button class="btn" id="editTask">Edit task</button>' : '') +
-    '<button class="btn" id="closeDrawer">Close ✕</button></div>';
+    '<button class="btn" id="closeDrawer">Close ✕</button></span></div>';
   h += '<h2 style="margin:6px 0 8px;font-size:18px">' + esc(t.title) + '</h2>';
   var unmetDeps = (t.depends_on || []).filter(function (d) { return d.status !== 'done'; });
   if (unmetDeps.length) {
