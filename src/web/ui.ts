@@ -194,10 +194,30 @@ pre.body {
   background: var(--panel); border-left: 1px solid var(--border);
   z-index: 31; overflow-y: auto; padding: 18px 20px 60px;
 }
+/*
+ * The drawer scrolls as one block, so an action row left in the flow leaves
+ * with the content: on a long task, Refresh and Edit end up above the top of
+ * the drawer and you have to scroll back for them (#57, reported by @rusak47).
+ * Pin it to the drawer's own scrollport, the way the page header and tabs are
+ * already pinned to the window. The negative margins let the bar span the
+ * drawer's padding, so nothing scrolls past it through the gutters.
+ */
+.drawer-actions {
+  position: sticky; top: 0; z-index: 1;
+  margin: -18px -20px 0; padding: 12px 20px 10px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+/* The same thing at the other end: a long form scrolls its own buttons away. */
+.modal-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  margin: 6px -20px -18px; padding: 10px 20px 14px;
+  background: var(--panel); border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
 /* Drag the left edge to widen the drawer; the width is remembered per browser. */
 .drawer-resize {
   position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
-  cursor: ew-resize; background: transparent;
+  cursor: ew-resize; background: transparent; z-index: 2;
 }
 .drawer-resize:hover, .drawer-resize.active { background: var(--accent); opacity: .5; }
 body.resizing { cursor: ew-resize; user-select: none; }
@@ -683,7 +703,7 @@ function modal(title, fields, submitLabel, onSubmit) {
     h += '</div>';
   });
   h += '<p class="err" id="merr" hidden></p>';
-  h += '<div class="row" style="justify-content:flex-end;margin-top:6px">' +
+  h += '<div class="row modal-actions">' +
        '<button type="button" class="btn" id="mcancel">Cancel</button>' +
        '<button type="submit" class="btn primary">' + esc(submitLabel) + '</button></div></form>';
   m.innerHTML = h;
@@ -1351,7 +1371,7 @@ function drawTask() {
   if (savedWidth) d.style.width = savedWidth;
 
   var h = '<div class="drawer-resize" id="drawerResize" title="Drag to resize"></div>' +
-    '<div class="row"><span class="grow"></span>' +
+    '<div class="row drawer-actions"><span class="grow"></span>' +
     '<button class="btn" id="refreshTask" title="Re-read this task from the database">⟳ Refresh</button>' +
     (ed && t.is_deleted ? '<button class="btn" id="restoreTask">Restore</button>' : '') +
     (ed && !t.is_deleted && t.status === 'todo'

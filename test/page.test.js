@@ -293,6 +293,65 @@ test('a read-only page offers no archive controls at all', () => {
   }
 });
 
+/* ---------- controls stay reachable in a scrolling panel (#57) ---------- */
+
+/**
+ * Reported by @rusak47: the page header and tabs are sticky, so the Epics page
+ * keeps its buttons in view, but the task drawer scrolls as one block — and on
+ * a long task its Refresh and Edit buttons end up above the top of the panel,
+ * reachable only by scrolling back.
+ *
+ * These read the stylesheet rather than a screenshot, so they hold whatever the
+ * panel's height turns out to be.
+ */
+
+/** The declarations of one rule, as a map. */
+function ruleOf(selector) {
+  const out = {};
+  for (const [, rawSelector, body] of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    if (!rawSelector.split(',').map((s) => s.trim()).includes(selector)) continue;
+    for (const part of body.split(';')) {
+      const colon = part.indexOf(':');
+      if (colon < 0) continue;
+      out[part.slice(0, colon).trim()] = part.slice(colon + 1).trim();
+    }
+  }
+  return out;
+}
+
+test('the drawer pins its action row to the top of its own scroll', () => {
+  const rule = ruleOf('.drawer-actions');
+  assert.equal(rule.position, 'sticky', 'the row must stay put while the drawer scrolls');
+  assert.equal(rule.top, '0');
+  assert.ok(script.includes('class="row drawer-actions"'), 'the drawer must use the pinned row');
+});
+
+test('the pinned row is opaque, so content cannot scroll through it', () => {
+  // A sticky bar with no background lets the text underneath read through it,
+  // which is worse than the buttons being out of reach.
+  const rule = ruleOf('.drawer-actions');
+  assert.equal(rule.background, 'var(--panel)', 'a see-through bar is worse than a hidden button');
+  assert.ok(rule.margin?.includes('-'), 'negative margins span the drawer padding, leaving no gutter');
+});
+
+test('a long form keeps its own submit button in view', () => {
+  // The same defect at the other end of the panel: the dependency picker (#45)
+  // is long enough to scroll Save off the bottom.
+  const rule = ruleOf('.modal-actions');
+  assert.equal(rule.position, 'sticky');
+  assert.equal(rule.bottom, '0');
+  assert.equal(rule.background, 'var(--panel)', 'a see-through bar is worse than a hidden button');
+  assert.ok(script.includes('class="row modal-actions"'), 'the modal must use the pinned row');
+});
+
+test('the drawer can still be resized where the pinned row covers its edge', () => {
+  // The grip is a 6px strip down the drawer's left edge; a pinned row painted
+  // over it would swallow the drag at the top of the panel.
+  const grip = Number(ruleOf('.drawer-resize')['z-index']);
+  const bar = Number(ruleOf('.drawer-actions')['z-index']);
+  assert.ok(grip > bar, `the resize grip (z-index ${grip}) must stay above the pinned row (${bar})`);
+});
+
 /* ---------- CSS cascade ---------- */
 
 /** Every rule that declares `property`, in source order. */

@@ -440,7 +440,8 @@ And throughout:
 - **Task drawer** — edit any field, comment, remove or restore a comment, lock the description,
   drag subtasks into order, and set which subtasks wait on which. Each subtask has one control
   carrying its whole state (todo / in progress / done, or blocked), and the drawer resizes by
-  dragging its edge
+  dragging its edge. Its Refresh/Edit/Close row stays pinned to the top however far you scroll,
+  as a long form keeps its Save button in view
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/task-dark.png">
@@ -659,7 +660,7 @@ DB_PATH=./test.db npm start
 # the web UI against the same database
 node dist/web/index.js ./test.db --open
 
-npm test     # 342 unit and integration tests, no network
+npm test     # 346 unit and integration tests, no network
 npm run e2e  # release gate: packs a tarball, installs it, drives the real binaries
 ```
 
