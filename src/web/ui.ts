@@ -413,7 +413,12 @@ function pill(kind, value) {
   return '<span class="pill ' + kind + '-' + esc(value) + '">' + esc(label(value)) + '</span>';
 }
 function progressBar(pct) { return '<div class="bar"><i style="width:' + Number(pct || 0) + '%"></i></div>'; }
-function parseTags(json) { try { return JSON.parse(json || '[]'); } catch (e) { return []; } }
+function parseTags(json) {
+  // Tool results arrive decoded (#55); rows read straight from the database
+  // still carry the stored JSON text.
+  if (Array.isArray(json)) return json;
+  try { return JSON.parse(json || '[]'); } catch (e) { return []; }
+}
 function tagPills(json) {
   return parseTags(json).map(function (t) {
     return '<span class="pill pr-medium">' + esc(t) + '</span>';

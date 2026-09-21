@@ -336,6 +336,10 @@ Coercion stops where intent becomes ambiguous. A comma inside a *title* is left 
 list is a separator, because neither can contain one. Anything genuinely unusable is refused with a
 message naming what arrived and what was wanted, rather than a leaked `ids.map is not a function`.
 
+What comes back matches what went in. `tags`, `metadata` and `source_ref` live in JSON text
+columns, and every response decodes them at the boundary, so a tag list reads as `["billing",
+"urgent"]` rather than the escaped string `"[\"billing\",\"urgent\"]"` an agent cannot use.
+
 ---
 
 ## One database, many projects
@@ -655,7 +659,7 @@ DB_PATH=./test.db npm start
 # the web UI against the same database
 node dist/web/index.js ./test.db --open
 
-npm test     # 326 unit and integration tests, no network
+npm test     # 342 unit and integration tests, no network
 npm run e2e  # release gate: packs a tarball, installs it, drives the real binaries
 ```
 

@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
-import { asIdList } from '../helpers/coerce.js';
+import { asIdList, tagsColumn } from '../helpers/coerce.js';
+import { decodeJsonColumns } from '../helpers/json-columns.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import type { ToolHandler } from '../types.js';
 
@@ -160,8 +161,8 @@ function handleExport(args: Record<string, unknown>) {
     metadata: n.metadata,
   }));
 
-  return {
-    format_version: '1.2',
+  return decodeJsonColumns({
+    format_version: '1.3',
     exported_at: new Date().toISOString(),
     project: {
       name: project.name,
@@ -172,7 +173,13 @@ function handleExport(args: Record<string, unknown>) {
       epics: epicData,
     },
     notes: noteData,
-  };
+  });
+}
+
+/** A JSON column as column text, whichever shape the dump carried it in. */
+function jsonColumn(value: unknown, fallback: string | null = '{}'): string | null {
+  if (value === undefined || value === null) return fallback;
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 function handleImport(args: Record<string, unknown>) {
@@ -180,8 +187,8 @@ function handleImport(args: Record<string, unknown>) {
   const data = args.data as Record<string, unknown>;
 
   const version = data.format_version as string;
-  if (version !== '1.0' && version !== '1.1' && version !== '1.2') {
-    throw new Error(`Unsupported format version: ${version}. Expected "1.0", "1.1", or "1.2".`);
+  if (!['1.0', '1.1', '1.2', '1.3'].includes(version)) {
+    throw new Error(`Unsupported format version: ${version}. Expected "1.0", "1.1", "1.2" or "1.3".`);
   }
 
   const projectData = data.project as Record<string, unknown>;
@@ -200,8 +207,8 @@ function handleImport(args: Record<string, unknown>) {
       projectData.name,
       projectData.description ?? null,
       projectData.status ?? 'active',
-      projectData.tags ?? '[]',
-      projectData.metadata ?? '{}'
+      tagsColumn(projectData.tags),
+      jsonColumn(projectData.metadata)
     ) as Record<string, unknown>;
 
     const newProjectId = project.id as number;
@@ -230,8 +237,8 @@ function handleImport(args: Record<string, unknown>) {
         epicData.priority ?? 'medium',
         epicData.sort_order ?? 0,
         epicData.branch ?? null,
-        epicData.tags ?? '[]',
-        epicData.metadata ?? '{}'
+        tagsColumn(epicData.tags),
+        jsonColumn(epicData.metadata)
       ) as Record<string, unknown>;
 
       const newEpicId = epic.id as number;
@@ -259,9 +266,9 @@ function handleImport(args: Record<string, unknown>) {
           taskData.estimated_hours ?? null,
           taskData.actual_hours ?? null,
           taskData.due_date ?? null,
-          taskData.source_ref ?? null,
-          taskData.tags ?? '[]',
-          taskData.metadata ?? '{}'
+          jsonColumn(taskData.source_ref, null),
+          tagsColumn(taskData.tags),
+          jsonColumn(taskData.metadata)
         ) as Record<string, unknown>;
 
         const newTaskId = task.id as number;
@@ -356,8 +363,8 @@ function handleImport(args: Record<string, unknown>) {
         noteData.note_type ?? 'general',
         relatedEntityType,
         relatedEntityId,
-        noteData.tags ?? '[]',
-        noteData.metadata ?? '{}'
+        tagsColumn(noteData.tags),
+        jsonColumn(noteData.metadata)
       ) as Record<string, unknown>;
 
       noteCount++;
