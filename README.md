@@ -45,6 +45,7 @@ Tested on Node 20, 22 and 24, on Linux, macOS and Windows.
 |----------|----------|-------------|
 | `DB_PATH` | Yes | Path to the `.tracker.db` SQLite file. Created on first use. |
 | `SAGA_PROJECT` | No | Scope every tool to one project, by id or name. Set this per repo when several repos [share one database](#one-database-many-projects). |
+| `SAGA_DESCRIPTION_LOCK` | No | `on_progress` locks a task's description the moment work starts on it. Off by default. See [keeping agents on the rails](#keeping-agents-on-the-rails). |
 | `SAGA_TOOLS` | No | `full` (default) lists all 41 tools. `core` lists only the 13 an ordinary tracking session needs, saving ~4,300 tokens per session. See [token cost](#token-cost). |
 
 No API keys, no accounts, no external services.
@@ -195,6 +196,20 @@ deliberate `task_lock_description` call or the lock toggle in the web UI, and bo
 
 This is a guard against confusion, not an adversarial control: an agent that is told to unlock
 still can. It turns a silent overwrite into a visible, reversible decision.
+
+Locking each task by hand does not scale across a plan, so `SAGA_DESCRIPTION_LOCK=on_progress`
+does it for you: a task locks as work starts on it — when it moves to `in_progress`, `review` or
+`done`, or is created there. It is off unless you set it, since it changes what an agent is
+allowed to do.
+
+```json
+"env": { "DB_PATH": "…", "SAGA_DESCRIPTION_LOCK": "on_progress" }
+```
+
+It sets the same flag `task_lock_description` sets, rather than second-guessing every write. So
+one mechanism governs the field: unlock a task and it stays unlocked, whatever its status does
+next. `blocked` is not "started" — a task waiting on a dependency has not been worked on, and
+dependencies move tasks in and out of that status on their own.
 
 **Subtask order and dependencies.** New subtasks are appended in order rather than all landing at
 position 0, `subtask_reorder` sets the order in one call (or drag them in the UI), and a subtask
@@ -660,7 +675,7 @@ DB_PATH=./test.db npm start
 # the web UI against the same database
 node dist/web/index.js ./test.db --open
 
-npm test     # 346 unit and integration tests, no network
+npm test     # 358 unit and integration tests, no network
 npm run e2e  # release gate: packs a tarball, installs it, drives the real binaries
 ```
 

@@ -8,6 +8,7 @@ import { resolveProjectId, taskScopeClause, PROJECT_ID_SCHEMA } from '../helpers
 import { resolveBranch } from '../helpers/git.js';
 import { withDependencies } from './subtasks.js';
 import { guardTaskDone, FORCE_SCHEMA } from '../helpers/completion-guard.js';
+import { lockOnProgress } from '../helpers/description-lock.js';
 import { asIdList, tagsColumn } from '../helpers/coerce.js';
 import { liveTaskClause, wantsHidden, INCLUDE_ARCHIVED_SCHEMA, INCLUDE_DELETED_TASKS_SCHEMA } from '../helpers/visibility.js';
 import { assertAcyclic, taskEdges } from '../helpers/dependency-graph.js';
@@ -279,6 +280,9 @@ function handleTaskCreate(args: Record<string, unknown>) {
   const row = task as Record<string, unknown>;
   const taskId = row.id as number;
   logActivity(db, 'task', taskId, 'created', null, null, null, `Task '${title}' created`);
+  // A task created straight into progress has started as surely as one moved
+  // there, so it locks on the same rule (#53).
+  if (lockOnProgress(db, taskId, title, undefined, status)) row.description_locked = 1;
 
   if (dependsOn.length > 0) {
     setDependencies(db, taskId, dependsOn);
@@ -541,6 +545,13 @@ function handleTaskUpdate(args: Record<string, unknown>) {
     evaluateAndUpdateDependencies(db, id, true);
     // Re-fetch in case status changed
     newRow = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown>;
+  }
+
+  // #53: with SAGA_DESCRIPTION_LOCK=on_progress, work starting is what locks
+  // the description. This runs after the update, so a description sent in the
+  // same call is still accepted — the lock applies from the transition onward.
+  if (lockOnProgress(db, id, newRow.title as string, oldRow.status as string, args.status)) {
+    newRow.description_locked = 1;
   }
 
   // Auto time tracking: when status changes to done and actual_hours wasn't manually set
