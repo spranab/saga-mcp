@@ -7,7 +7,7 @@ import { tempDbPath, loadTools, seed } from './helpers.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dbPath = tempDbPath('saga-stdio');
-seed(await loadTools(dbPath));
+const fixture = seed(await loadTools(dbPath));
 
 /** Speak JSON-RPC to a freshly spawned MCP server over stdio. */
 function startServer(env = {}) {
@@ -191,4 +191,77 @@ test('a round trip through the server actually reads the database', async () => 
   const rows = JSON.parse(res.result.content[0].text);
   assert.equal(rows.length, 6);
   assert.ok(rows.every((r) => !('metadata' in r)), 'list rows stay slim over the wire');
+});
+
+/* ---------- JSON columns reach the caller decoded (#55) ---------- */
+
+/**
+ * Reported by @rusak47: `tags` is stored as JSON text, every tool answered with
+ * the row as SQLite returned it, and the MCP layer then escaped that text a
+ * second time. An agent asked for a list and got the string
+ * `"[\"cherry-pick\",\"dedicated branch\"]"`, so agents that trusted the declared
+ * type read no tags at all. These drive the real server over stdio, because
+ * the escaping only happened on the way out.
+ */
+const TAGS = ['cherry-pick', 'dedicated branch'];
+
+/** Call a tool over stdio and parse the result payload. */
+async function call(s, name, args) {
+  const res = await s.send('tools/call', { name, arguments: args });
+  assert.ok(!res.result.isError, name + ': ' + res.result.content[0].text);
+  return JSON.parse(res.result.content[0].text);
+}
+
+test('tags come back as a list, not an escaped string', async () => {
+  const s = await server();
+  const created = await call(s, 'task_create', {
+    epic_id: fixture.epics.billing.id, title: 'Tagged work', tags: TAGS,
+  });
+  assert.deepEqual(created.tags, TAGS);
+  assert.notEqual(typeof created.tags, 'string');
+});
+
+test('every read path answers in the same shape', async () => {
+  const s = await server();
+  const created = await call(s, 'task_create', {
+    epic_id: fixture.epics.billing.id, title: 'Tagged read paths', tags: TAGS,
+  });
+  assert.deepEqual((await call(s, 'task_get', { id: created.id })).tags, TAGS, 'task_get');
+  const listed = (await call(s, 'task_list', { limit: 50 })).find((t) => t.id === created.id);
+  assert.deepEqual(listed.tags, TAGS, 'task_list');
+  const epic = await call(s, 'epic_create', {
+    project_id: fixture.project.id, name: 'Tagged epic', tags: ['infra'],
+  });
+  assert.deepEqual(epic.tags, ['infra'], 'epic_create');
+  const note = await call(s, 'note_save', { title: 'Tagged note', content: 'x', tags: ['decision'] });
+  assert.deepEqual(note.tags, ['decision'], 'note_save');
+});
+
+test('the list that comes back can be sent straight back in', async () => {
+  // The shape an agent reads has to be a shape it can write, or the fix just
+  // moves the escaping one hop later.
+  const s = await server();
+  const created = await call(s, 'task_create', {
+    epic_id: fixture.epics.billing.id, title: 'Round trip', tags: TAGS,
+  });
+  const updated = await call(s, 'task_update', { id: created.id, tags: created.tags });
+  assert.deepEqual(updated.tags, TAGS);
+});
+
+test('a structured source_ref survives as an object', async () => {
+  const s = await server();
+  const created = await call(s, 'task_create', {
+    epic_id: fixture.epics.billing.id, title: 'With a source ref',
+    source_ref: { file: 'src/index.ts', line_start: 12 },
+  });
+  const got = await call(s, 'task_get', { id: created.id });
+  assert.deepEqual(got.source_ref, { file: 'src/index.ts', line_start: 12 });
+});
+
+test('a task with no tags still says so with an empty list', async () => {
+  const s = await server();
+  const created = await call(s, 'task_create', {
+    epic_id: fixture.epics.billing.id, title: 'Untagged',
+  });
+  assert.deepEqual(created.tags, []);
 });

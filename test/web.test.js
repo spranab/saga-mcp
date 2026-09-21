@@ -242,6 +242,16 @@ test('a taken explicit port fails loudly rather than moving', async () => {
   await assert.rejects(startWeb(['--port', '4457']), /already in use|exited with 1/);
 });
 
+test('a write through the UI answers in the same shape the MCP server does', async () => {
+  // One tool must not describe tags two different ways depending on which door
+  // the caller came through (#55).
+  const res = await post(editable.base, {
+    tool: 'epic_update', args: { id: fixture.epics.billing.id, tags: ['ui', 'shape'] },
+  });
+  const body = await res.json();
+  assert.deepEqual(body.result.epic?.tags ?? body.result.tags, ['ui', 'shape']);
+});
+
 test('archived epics sort last, whatever their place in the manual order', async () => {
   // The UI draws one "archived" divider at the first archived row, so an
   // archived epic sitting mid-order would sweep the live ones below it under

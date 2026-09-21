@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { decodeJsonColumns } from './helpers/json-columns.js';
 import { definitions as projectDefs, handlers as projectHandlers } from './tools/projects.js';
 import { definitions as epicDefs, handlers as epicHandlers } from './tools/epics.js';
 import { definitions as taskDefs, handlers as taskHandlers } from './tools/tasks.js';
@@ -139,7 +140,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw new Error(`Unknown tool: ${name}`);
     }
 
-    const result = handler(args ?? {});
+    // Rows carry the JSON columns as stored text; decode them here so a list
+    // reaches the caller as a list rather than an escaped string (#55).
+    const result = decodeJsonColumns(handler(args ?? {}));
     return {
       // Compact, not pretty-printed: indentation costs ~22% of every response
       // in tokens and buys the model nothing.

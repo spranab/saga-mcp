@@ -17,6 +17,7 @@ import { getDb, closeDb } from '../db.js';
 import { PAGE } from './ui.js';
 import * as q from './queries.js';
 
+import { decodeJsonColumns } from '../helpers/json-columns.js';
 import { handlers as projectHandlers } from '../tools/projects.js';
 import { handlers as epicHandlers } from '../tools/epics.js';
 import { handlers as taskHandlers } from '../tools/tasks.js';
@@ -366,7 +367,7 @@ async function handle(
     if (!handler) return json(res, 400, { error: `Unknown or disallowed action: ${tool}` });
 
     try {
-      return json(res, 200, { ok: true, result: handler(payload.args ?? {}) });
+      return json(res, 200, { ok: true, result: decodeJsonColumns(handler(payload.args ?? {})) });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return json(res, 400, { error: msg });
