@@ -111,6 +111,9 @@ test('a nonsense protocol version still yields a usable session', async () => {
   });
   assert.ok(!res.error);
   assert.equal(res.result.protocolVersion, KNOWN_REVISIONS[KNOWN_REVISIONS.length - 1]);
+
+  const tools = await s.send('tools/list', {});
+  assert.ok(Array.isArray(tools.result.tools) && tools.result.tools.length > 0);
 });
 
 test('the server names itself and its version in the handshake', async () => {
