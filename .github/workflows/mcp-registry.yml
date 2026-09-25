@@ -1,0 +1,75 @@
+name: Publish to MCP Registry
+
+# Publishes server.json to the official MCP registry
+# (registry.modelcontextprotocol.io) using GitHub OIDC — no stored secrets.
+# Runs after each GitHub release, or manually via workflow_dispatch.
+#
+# TIMING: this fires on the SAME `release: published` event as publish.yml, so
+# the two can race. The registry validates that the npm package actually
+# exists, and it loses that race if npm hasn't finished publishing yet. Hence
+# the wait below.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+
+      - name: Sync server.json version with release tag
+        if: github.event_name == 'release'
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          jq --arg v "$V" '.version = $v | .packages[0].version = $v' server.json > server.json.tmp
+          mv server.json.tmp server.json
+          echo "Publishing version $V"
+
+      - name: Wait for the release to be installable from npm
+        if: github.event_name == 'release'
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 20); do
+            PUBLISHED="$(npm view saga-mcp@"$V" version 2>/dev/null || true)"
+            if [ "$PUBLISHED" = "$V" ]; then
+              echo "saga-mcp $V is on npm (attempt $i)"
+              exit 0
+            fi
+            echo "attempt ${i}/20: $V not on npm yet; sleeping 30s"
+            sleep 30
+          done
+          echo "::error::saga-mcp $V did not appear on npm within 10 minutes."
+          echo "::error::Check the 'Publish to npm' workflow for this tag — if it failed,"
+          echo "::error::fix that first; re-run this job once the version is live."
+          exit 1
+
+      - name: Login (GitHub OIDC)
+        run: mcp-publisher login github-oidc
+
+      - name: Publish
+        run: |
+          for i in 1 2 3; do
+            if mcp-publisher publish; then
+              echo "published on attempt ${i}"
+              exit 0
+            fi
+            if [ "${i}" -lt 3 ]; then
+              echo "publish attempt ${i} failed; retrying in 30s"
+              sleep 30
+            fi
+          done
+          echo "::error::mcp-publisher publish failed after 3 attempts"
+          exit 1
