@@ -65,7 +65,9 @@ task_create({ epic_id: 1, title: "Add OAuth2 Google login", depends_on: [2] })
 ```
 
 Tasks 2 and 3 come back **blocked** — their dependencies aren't done. Finish task 1 and task 2
-unblocks itself.
+unblocks itself. That whole exchange, actually run against saga-mcp:
+
+<img alt="An agent session over MCP: creating a project, an epic and three tasks, two of them auto-blocking on their dependency, then task 1 finishing and unblocking task 2, ending with tracker_next recommending it" src="https://raw.githubusercontent.com/spranab/saga-mcp/master/docs/screenshots/mcp-demo.gif" width="480">
 
 **Next session, you:** "Where were we?"
 

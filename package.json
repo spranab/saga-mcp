@@ -26,7 +26,8 @@
     "test": "npm run build && node --test",
     "test:only": "node --test",
     "e2e": "npm run build && node scripts/e2e.mjs",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "demo-gif": "node scripts/mcp-demo.mjs"
   },
   "keywords": [
     "mcp",
