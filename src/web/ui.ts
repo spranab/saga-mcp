@@ -385,7 +385,10 @@ code {
 <script>
 var S = { projects: [], projectId: null, tab: 'overview', overview: null, tasks: [],
           epicOpen: {}, task: null, showDeleted: false, query: '', readOnly: false,
-          showArchived: false, hidden: { archived_epics: 0, removed_tasks: 0 } };
+          showArchived: false, hidden: { archived_epics: 0, removed_tasks: 0 }, hideDone: false };
+// A view preference, not a setting: kept in this browser only, same as the
+// drawer width below, so it does not change what task_list returns to agents.
+try { S.hideDone = localStorage.getItem('saga.hideDoneTasks') === '1'; } catch (e) { /* private mode */ }
 
 var TABS = [['overview','Overview'],['board','Board'],['epics','Epics'],['notes','Notes'],['templates','Templates'],['activity','Activity']];
 var TASK_STATUS = ['todo', 'in_progress', 'review', 'blocked', 'done'];
@@ -958,6 +961,18 @@ function archivedToggle() {
     (epics ? ' (' + epics + ')' : '') + '</button>';
 }
 
+/**
+ * The show/hide-done switch for the Epics tab (#65). Every epic already holds
+ * every task it was loaded with, so this is a client-side filter, not a
+ * re-fetch — unlike archivedToggle, which changes what the server sent.
+ */
+function doneToggle() {
+  var done = S.tasks.filter(function (t) { return t.status === 'done'; }).length;
+  if (!done) return '';
+  return '<button class="btn" id="toggleDone">' + (S.hideDone ? 'Show' : 'Hide') + ' completed' +
+    ' (' + done + ')</button>';
+}
+
 /* ---------- overview ---------- */
 
 function viewOverview() {
@@ -1092,13 +1107,18 @@ function viewEpics() {
     (canEdit() ? '<button class="btn primary" id="newEpic">+ Epic</button>' : '') +
     '<button class="btn" id="expandAll">Expand all</button>' +
     '<button class="btn" id="collapseAll">Collapse all</button>' +
-    archivedToggle() + '</div>';
+    archivedToggle() + doneToggle() + '</div>';
   if (!o.epics.length) h += '<p class="empty">No epics yet.</p>';
 
   var archivedShown = false;
   o.epics.forEach(function (e) {
     var open = S.epicOpen[e.id];
     var list = byEpic[e.id] || [];
+    var hiddenDone = 0;
+    if (S.hideDone) {
+      hiddenDone = list.filter(function (t) { return t.status === 'done'; }).length;
+      list = list.filter(function (t) { return t.status !== 'done'; });
+    }
     // Archived epics sort below a divider rather than mixing in, as on the overview.
     if (e.archived && !archivedShown) {
       archivedShown = true;
@@ -1130,7 +1150,9 @@ function viewEpics() {
           for (var k in t) copy[k] = t[k];
           copy.epic_name = '';
           return taskLine(copy, extra, { draggable: true });
-        }).join('') : '<div class="empty">No tasks in this epic.</div>') +
+        }).join('') : '<div class="empty">' +
+          (hiddenDone ? hiddenDone + ' completed task(s) hidden.' : 'No tasks in this epic.') +
+          '</div>') +
         '</div></div>';
     }
     h += '</div>';
@@ -1698,6 +1720,12 @@ document.addEventListener('click', function (ev) {
   if (target.id === 'toggleArchived') {
     S.showArchived = !S.showArchived;
     return loadProject();
+  }
+  if (target.id === 'toggleDone') {
+    S.hideDone = !S.hideDone;
+    try { localStorage.setItem('saga.hideDoneTasks', S.hideDone ? '1' : '0'); } catch (e) { /* private mode */ }
+    render();
+    return;
   }
 
   var archBtn = target.closest('[data-archive-epic]');
