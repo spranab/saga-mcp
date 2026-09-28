@@ -1,7 +1,7 @@
 {
   "name": "saga-mcp",
   "mcpName": "io.github.spranab/saga-mcp",
-  "version": "1.17.1",
+  "version": "1.18.0",
   "description": "A Jira-like project tracker MCP server for AI agents. SQLite-backed, per-project scoped, with full hierarchy (Projects > Epics > Tasks > Subtasks), activity logging, and a dashboard — so LLMs never lose track.",
   "type": "module",
   "main": "dist/index.js",
@@ -26,7 +26,8 @@
     "test": "npm run build && node --test",
     "test:only": "node --test",
     "e2e": "npm run build && node scripts/e2e.mjs",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "demo-gif": "node scripts/mcp-demo.mjs"
   },
   "keywords": [
     "mcp",
