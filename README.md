@@ -693,20 +693,20 @@ step, and it is triggered by publishing a GitHub release, not by pushing a tag.
 ```bash
 # 1. bump the version in package.json, manifest.json and server.json, then merge
 # 2. tag it. Nothing is published yet.
-git tag -a v1.18.0 -m "v1.18.0 — ..." && git push origin v1.18.0
+git tag -a v1.19.0 -m "v1.19.0 — ..." && git push origin v1.19.0
 
 # 3. verify the tagged build: this packs the tarball that would be published
 #    and drives it end to end, including an upgrade from an older database.
 npm run e2e
 
 # 4. publish the release. This fires the publish workflow.
-gh release create v1.18.0 --notes-file notes.md
+gh release create v1.19.0 --notes-file notes.md
 ```
 
 The workflow re-runs the suite against the tagged commit, refuses a tag that does not match
 `package.json`, refuses a version already on npm, and sends a GitHub *pre-release* to the `next`
 dist-tag so it never becomes what `npm install saga-mcp` gives people. A failed publish can be
-retried against the same tag with `gh workflow run "Publish to npm" -f tag=v1.18.0`.
+retried against the same tag with `gh workflow run "Publish to npm" -f tag=v1.19.0`.
 
 ---
 
