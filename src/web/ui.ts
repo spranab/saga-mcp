@@ -176,6 +176,8 @@ h2:first-child { margin-top: 0; }
 .epic-head .caret { cursor: pointer; }
 .epic-body { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
 .tlist { display: flex; flex-direction: column; }
+.epic-notes { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.epic-notes .cmt { margin-top: 8px; margin-bottom: 0; }
 .tline {
   display: flex; align-items: center; gap: 9px; padding: 6px 4px;
   border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px;
@@ -383,8 +385,8 @@ code {
 <nav id="tabs"></nav>
 <main id="view"><p class="muted">Loading…</p></main>
 <script>
-var S = { projects: [], projectId: null, tab: 'overview', overview: null, tasks: [],
-          epicOpen: {}, task: null, showDeleted: false, query: '', readOnly: false,
+var S = { projects: [], projectId: null, tab: 'overview', overview: null, tasks: [], notes: [],
+          epicOpen: {}, epicNotesOpen: {}, task: null, showDeleted: false, query: '', readOnly: false,
           showArchived: false, hidden: { archived_epics: 0, removed_tasks: 0 }, hideDone: false };
 // A view preference, not a setting: kept in this browser only, same as the
 // drawer width below, so it does not change what task_list returns to agents.
@@ -895,11 +897,16 @@ function loadProject(keepDrawer) {
   var inc = S.showArchived ? '&include_archived=1' : '';
   return Promise.all([
     get('/api/overview?project_id=' + S.projectId + inc),
-    get('/api/tasks?project_id=' + S.projectId + inc)
+    get('/api/tasks?project_id=' + S.projectId + inc),
+    // Loaded eagerly, like tasks, rather than only when the Notes tab itself
+    // renders (#64) — the Epics tab needs each epic's own notes too, and a
+    // note edited or deleted anywhere should stop being stale everywhere.
+    get('/api/notes?project_id=' + S.projectId + '&limit=200')
   ]).then(function (r) {
     S.overview = r[0];
     S.hidden = r[0].hidden || { archived_epics: 0, removed_tasks: 0 };
     S.tasks = r[1].tasks;
+    S.notes = r[2].notes;
     render();
     if (keepDrawer && S.task) return openTask(S.task.id);
   }).catch(fail);
@@ -1102,6 +1109,11 @@ function viewEpics() {
   if (!o) return;
   var byEpic = {};
   S.tasks.forEach(function (t) { (byEpic[t.epic_id] || (byEpic[t.epic_id] = [])).push(t); });
+  var byEpicNotes = {};
+  (S.notes || []).forEach(function (n) {
+    if (n.related_entity_type !== 'epic') return;
+    (byEpicNotes[n.related_entity_id] || (byEpicNotes[n.related_entity_id] = [])).push(n);
+  });
 
   var h = '<div class="toolbar">' +
     (canEdit() ? '<button class="btn primary" id="newEpic">+ Epic</button>' : '') +
@@ -1153,40 +1165,64 @@ function viewEpics() {
         }).join('') : '<div class="empty">' +
           (hiddenDone ? hiddenDone + ' completed task(s) hidden.' : 'No tasks in this epic.') +
           '</div>') +
-        '</div></div>';
+        '</div>' +
+        epicNotesBlock(e, byEpicNotes[e.id] || []) +
+        '</div>';
     }
     h += '</div>';
   });
   el('view').innerHTML = h;
 }
 
+/**
+ * An epic's own notes (#64, asked for by @rusak47), collapsed by default so a
+ * long-lived epic's history does not compete with its task list for space.
+ * The caret/state-map pattern mirrors the epic-head one above it, but keyed
+ * into its own S.epicNotesOpen — data-toggle is already claimed by that caret.
+ */
+function epicNotesBlock(e, notes) {
+  var open = S.epicNotesOpen[e.id];
+  var h = '<div class="epic-notes"><div class="row">' +
+    '<span class="caret grow row" data-toggle-notes="' + e.id + '" style="cursor:pointer">' +
+      '<span class="muted">' + (open ? '▾' : '▸') + '</span> Notes' +
+      (notes.length ? ' (' + notes.length + ')' : '') +
+    '</span>' +
+    (canEdit() && !e.archived ? '<button class="btn" data-new-epic-note="' + e.id + '">+ Note</button>' : '') +
+    '</div>';
+  if (open) {
+    h += notes.length ? notes.map(function (n) {
+      return '<div class="cmt" data-view-note="' + n.id + '" style="cursor:pointer">' +
+        '<div class="hdr">' + esc(label(n.note_type)) + ' · ' + fmtDate(n.created_at) + '</div>' +
+        '<strong>' + esc(n.title) + '</strong></div>';
+    }).join('') : '<div class="empty">No notes on this epic.</div>';
+  }
+  return h + '</div>';
+}
+
 /* ---------- notes ---------- */
 
 function viewNotes() {
-  el('view').innerHTML = '<p class="muted">Loading…</p>';
-  get('/api/notes?project_id=' + S.projectId + '&limit=200').then(function (r) {
-    var h = canEdit() ? '<div class="toolbar"><button class="btn primary" id="newNote">+ Note</button></div>' : '';
-    if (!r.notes.length) {
-      el('view').innerHTML = h + '<p class="empty">No notes yet.</p>';
-      return;
-    }
-    h += r.notes.map(function (n) {
-      return '<div class="card">' +
-        '<div class="row"><strong class="grow">' + esc(n.title) + '</strong>' +
-        '<span class="pill pr-medium">' + esc(label(n.note_type)) + '</span>' +
-        '<span class="muted" style="font-size:12px">' + fmtDate(n.created_at) + '</span>' +
-        (canEdit() ? '<button class="btn" data-edit-note="' + n.id + '">Edit</button>' +
-                     '<button class="btn danger" data-del-note="' + n.id + '">Delete</button>' : '') +
-        '</div>' +
-        (n.related_entity_type ? '<div class="muted" style="font-size:12px;margin-top:2px">on ' +
-          esc(n.related_entity_type) + ' #' + esc(n.related_entity_id) + '</div>' : '') +
-        '<div class="body md-body">' + md(n.content) + '</div>' +
-        (tagPills(n.tags) ? '<div style="margin-top:8px">' + tagPills(n.tags) + '</div>' : '') +
-        '</div>';
-    }).join('');
-    el('view').innerHTML = h;
-    S.notes = r.notes;
-  }).catch(fail);
+  var notes = S.notes || [];
+  var h = canEdit() ? '<div class="toolbar"><button class="btn primary" id="newNote">+ Note</button></div>' : '';
+  if (!notes.length) {
+    el('view').innerHTML = h + '<p class="empty">No notes yet.</p>';
+    return;
+  }
+  h += notes.map(function (n) {
+    return '<div class="card">' +
+      '<div class="row"><strong class="grow">' + esc(n.title) + '</strong>' +
+      '<span class="pill pr-medium">' + esc(label(n.note_type)) + '</span>' +
+      '<span class="muted" style="font-size:12px">' + fmtDate(n.created_at) + '</span>' +
+      (canEdit() ? '<button class="btn" data-edit-note="' + n.id + '">Edit</button>' +
+                   '<button class="btn danger" data-del-note="' + n.id + '">Delete</button>' : '') +
+      '</div>' +
+      (n.related_entity_type ? '<div class="muted" style="font-size:12px;margin-top:2px">on ' +
+        esc(n.related_entity_type) + ' #' + esc(n.related_entity_id) + '</div>' : '') +
+      '<div class="body md-body">' + md(n.content) + '</div>' +
+      (tagPills(n.tags) ? '<div style="margin-top:8px">' + tagPills(n.tags) + '</div>' : '') +
+      '</div>';
+  }).join('');
+  el('view').innerHTML = h;
 }
 
 /* ---------- templates ---------- */
@@ -1551,7 +1587,12 @@ function drawTask() {
 
   h += '<h3>Notes' + (ed ? ' <button class="btn" id="addTaskNote">+ Note</button>' : '') + '</h3>';
   h += t.notes.length ? t.notes.map(function (n) {
-    return '<div class="cmt"><div class="hdr">' + esc(label(n.note_type)) + ' · ' + fmtDate(n.created_at) +
+    // Same edit/remove links as a comment's header (#64) — Notes here were
+    // read-only; the Notes tab already had Edit/Delete, just not this drawer.
+    return '<div class="cmt"><div class="hdr"><span class="grow">' + esc(label(n.note_type)) + ' · ' +
+      fmtDate(n.created_at) + '</span>' +
+      (ed ? '<button class="link" data-edit-note="' + n.id + '">edit</button>' +
+            '<button class="link" data-del-note="' + n.id + '">remove</button>' : '') +
       '</div><strong>' + esc(n.title) + '</strong><div class="body md-body">' + md(n.content) + '</div></div>';
   }).join('') : '<div class="empty">None.</div>';
 
@@ -1672,6 +1713,17 @@ function projectModal(project) {
   });
 }
 
+/**
+ * A note can appear on the Notes tab, an epic card, or the task drawer —
+ * S.notes covers the first two (loaded once per refresh, #64), the drawer's
+ * own S.task.notes covers the third, so both are searched regardless of
+ * where the click came from.
+ */
+function findNote(id) {
+  return (S.notes || []).concat(S.task ? S.task.notes : [])
+    .filter(function (x) { return x.id === id; })[0];
+}
+
 function noteModal(note, related) {
   var isNew = !note;
   var fields = [
@@ -1694,6 +1746,38 @@ function noteModal(note, related) {
       return refresh();
     });
   });
+}
+
+/**
+ * Read-first (#64): clicking a note opens this before any edit form, unlike
+ * every other entity here, which opens straight into modal()'s form. Built by
+ * hand rather than through modal(), whose only mode is a field form —
+ * closeModal() still tears it down the same way, and Edit reuses it too:
+ * noteModal() opens via modal(), whose first line is closeModal(), so this
+ * popup closes itself the moment Edit is clicked.
+ */
+function noteViewModal(note) {
+  closeModal();
+  var backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.addEventListener('click', closeModal);
+
+  var m = document.createElement('div');
+  m.className = 'modal';
+  m.innerHTML = '<h2>' + esc(note.title) + '</h2>' +
+    '<div class="row"><span class="pill pr-medium">' + esc(label(note.note_type)) + '</span>' +
+    '<span class="muted" style="font-size:12px">' + fmtDate(note.created_at) + '</span></div>' +
+    (tagPills(note.tags) ? '<div style="margin:8px 0">' + tagPills(note.tags) + '</div>' : '') +
+    '<div class="body md-body" style="margin:10px 0">' + md(note.content) + '</div>' +
+    '<div class="row modal-actions">' +
+      (canEdit() ? '<button class="btn danger" data-del-note="' + note.id + '">Delete</button>' : '') +
+      '<span class="grow"></span>' +
+      '<button type="button" class="btn" id="mNoteClose">Close</button>' +
+      (canEdit() ? '<button class="btn primary" data-edit-note="' + note.id + '">Edit</button>' : '') +
+    '</div>';
+  document.body.appendChild(backdrop);
+  document.body.appendChild(m);
+  m.querySelector('#mNoteClose').addEventListener('click', closeModal);
 }
 
 /* ---------- events ---------- */
@@ -1769,18 +1853,20 @@ document.addEventListener('click', function (ev) {
   var newTask = target.closest('[data-new-task]');
   if (newTask) return newTaskModal(Number(newTask.dataset.newTask));
 
+  var newEpicNote = target.closest('[data-new-epic-note]');
+  if (newEpicNote) return noteModal(null, { type: 'epic', id: Number(newEpicNote.dataset.newEpicNote) });
+
+  var viewNote = target.closest('[data-view-note]');
+  if (viewNote) return noteViewModal(findNote(Number(viewNote.dataset.viewNote)));
+
   var editNote = target.closest('[data-edit-note]');
-  if (editNote) {
-    var nid = Number(editNote.dataset.editNote);
-    var note = (S.notes || []).filter(function (x) { return x.id === nid; })[0];
-    return noteModal(note, null);
-  }
+  if (editNote) return noteModal(findNote(Number(editNote.dataset.editNote)), null);
 
   var delNote = target.closest('[data-del-note]');
   if (delNote) {
     if (!confirm('Delete this note? Notes are deleted permanently.')) return;
     return act('note_delete', { id: Number(delNote.dataset.delNote) })
-      .then(function () { toast('Note deleted'); viewNotes(); }).catch(oops);
+      .then(function () { toast('Note deleted'); closeModal(); return refresh(); }).catch(oops);
   }
 
   if (target.id === 'toggleLock') {
@@ -1996,6 +2082,14 @@ document.addEventListener('click', function (ev) {
   if (toggle) {
     var tid = toggle.dataset.toggle;
     S.epicOpen[tid] = !S.epicOpen[tid];
+    render();
+    return;
+  }
+
+  var toggleNotes = target.closest('[data-toggle-notes]');
+  if (toggleNotes) {
+    var ntid = toggleNotes.dataset.toggleNotes;
+    S.epicNotesOpen[ntid] = !S.epicNotesOpen[ntid];
     render();
     return;
   }

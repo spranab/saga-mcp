@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getDb } from '../db.js';
-import { addTagFilter } from '../helpers/sql-builder.js';
+import { addTagFilter, buildUpdate } from '../helpers/sql-builder.js';
 import { tagsColumn } from '../helpers/coerce.js';
 import { logActivity } from '../helpers/activity-logger.js';
 import { resolveProjectId, noteScopeClause, repeatId, PROJECT_ID_SCHEMA } from '../helpers/project-scope.js';
@@ -87,30 +87,34 @@ export const definitions: Tool[] = [
 function handleNoteSave(args: Record<string, unknown>) {
   const db = getDb();
   const id = args.id as number | undefined;
-  const title = args.title as string;
-  const content = args.content as string;
-  const noteType = (args.note_type as string) ?? 'general';
-  const relatedEntityType = (args.related_entity_type as string) ?? null;
-  const relatedEntityId = (args.related_entity_id as number) ?? null;
-  const tags = tagsColumn(args.tags);
 
   if (id !== undefined) {
-    // Update existing note
+    // Update existing note. Goes through buildUpdate like every other tool's
+    // update handler, rather than a hand-rolled UPDATE of every column: only
+    // related_entity_type/id and tags are optional on this call, and writing
+    // them unconditionally — defaulting an omitted one to null — meant an
+    // edit that left them out (as the web UI's noteModal always did) silently
+    // unlinked the note from its epic/task/project, or wiped its tags.
     const existing = db.prepare('SELECT * FROM notes WHERE id = ?').get(id);
     if (!existing) throw new Error(`Note ${id} not found`);
 
-    const note = db
-      .prepare(
-        `UPDATE notes SET title = ?, content = ?, note_type = ?, related_entity_type = ?,
-         related_entity_id = ?, tags = ?, updated_at = datetime('now')
-         WHERE id = ? RETURNING *`
-      )
-      .get(title, content, noteType, relatedEntityType, relatedEntityId, tags, id);
+    const update = buildUpdate('notes', id, args, [
+      'title', 'content', 'note_type', 'related_entity_type', 'related_entity_id', 'tags',
+    ]);
+    if (!update) throw new Error('note_save: nothing to update');
+    const note = db.prepare(update.sql).get(...update.params) as Record<string, unknown>;
 
-    logActivity(db, 'note', id, 'updated', null, null, null, `Note '${title}' updated`);
+    logActivity(db, 'note', id, 'updated', null, null, null, `Note '${note.title}' updated`);
     return note;
   } else {
     // Create new note
+    const title = args.title as string;
+    const content = args.content as string;
+    const noteType = (args.note_type as string) ?? 'general';
+    const relatedEntityType = (args.related_entity_type as string) ?? null;
+    const relatedEntityId = (args.related_entity_id as number) ?? null;
+    const tags = tagsColumn(args.tags);
+
     const note = db
       .prepare(
         `INSERT INTO notes (title, content, note_type, related_entity_type, related_entity_id, tags)
