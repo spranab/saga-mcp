@@ -54,9 +54,9 @@ const ALL_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> =
 };
 
 /**
- * The full tool list costs ~6,000 tokens of context in every session before any
+ * The full tool list costs ~7,200 tokens of context in every session before any
  * work happens. SAGA_TOOLS=core exposes the subset that covers ordinary tracking
- * (~2,300 tokens); handlers stay registered either way, so a client that already
+ * (~2,900 tokens); handlers stay registered either way, so a client that already
  * knows a tool name can still call it. Unset (or "full") keeps every tool listed.
  */
 const CORE_TOOLS = new Set([
