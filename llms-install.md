@@ -35,5 +35,10 @@ key, no network calls.
 - An optional `SAGA_PROJECT` env var scopes a shared database to one project
   when multiple agents write to the same `DB_PATH`; omit it for the common
   case of one database per repo.
-- Do not set any other environment variables — there are no API keys or
-  external services involved.
+- An optional `SAGA_TOOLS` env var set to `core` lists only the 13 tools an
+  ordinary tracking session needs instead of all 41, saving ~4,300 tokens of
+  context per session; omit it (or set `full`) to see every tool.
+- An optional `SAGA_DESCRIPTION_LOCK` env var set to `on_progress` locks a
+  task's description the moment work starts on it.
+- Beyond `DB_PATH` and the three settings above, there is nothing else to
+  set — no API keys, no external services.

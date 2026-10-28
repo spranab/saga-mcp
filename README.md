@@ -732,6 +732,12 @@ Part of a set of agent infrastructure built by one person, meant to be used toge
   hierarchical tool.
 - [mcpier](https://github.com/spranab/mcpier) — self-hosted MCP control plane that keeps API keys
   off your clients.
+- [discord-mcp](https://github.com/spranab/discord-mcp) — 30+ Discord actions (messages, roles,
+  moderation, threads) behind one hierarchical tool.
+- [icantmarket-mcp](https://github.com/spranab/icantmarket-mcp) — browse, ask about, and review
+  products on icantmarket from the same client.
+- [tier](https://github.com/yantrikos/tier) — adapts a tool list to the model behind it, so small
+  models still pick the right one.
 
 ## License
 
