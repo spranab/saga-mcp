@@ -677,7 +677,7 @@ DB_PATH=./test.db npm start
 # the web UI against the same database
 node dist/web/index.js ./test.db --open
 
-npm test     # 359 unit and integration tests, no network
+npm test     # 363 unit and integration tests, no network
 npm run e2e  # release gate: packs a tarball, installs it, drives the real binaries
 ```
 
